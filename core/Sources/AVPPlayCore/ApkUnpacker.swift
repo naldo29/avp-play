@@ -64,14 +64,15 @@ public struct ApkUnpacker: Sendable {
 
     /// Paketname und Fassung aus dem Manifest eines APKs, ohne etwas zu entpacken.
     public static func manifest(of apk: URL) throws -> Info {
-        let names = try run(["/usr/bin/unzip", "-Z1", apk.path]).text.split(separator: "\n").map(String.init)
-        guard names.contains("AndroidManifest.xml") else { throw UnpackError.notAnApk(L("no AndroidManifest.xml", "kein AndroidManifest.xml")) }
-        let binary = try run(["/usr/bin/unzip", "-p", apk.path, "AndroidManifest.xml"]).data
+        let names = try APKEntryReader.names(in: apk)
+        guard names.filter({ $0 == "AndroidManifest.xml" }).count == 1 else { throw UnpackError.notAnApk(L("one AndroidManifest.xml is required", "genau eine AndroidManifest.xml ist erforderlich")) }
+        let binary = try APKEntryReader.data(["-p", apk.path, "AndroidManifest.xml"], limit: 4 << 20)
         let (_, package, code, name) = try AXML.decode(binary)
         return Info(package: package, versionCode: code, versionName: name, files: 0)
     }
 
     public func unpack(apk: URL, to destination: URL) throws -> Info {
+        try APKArchive.validate(apk)
         let names = try ApkUnpacker.run(["/usr/bin/unzip", "-Z1", apk.path]).text
             .split(separator: "\n").map(String.init)
         guard names.contains("AndroidManifest.xml") else { throw UnpackError.notAnApk(L("no AndroidManifest.xml", "kein AndroidManifest.xml")) }

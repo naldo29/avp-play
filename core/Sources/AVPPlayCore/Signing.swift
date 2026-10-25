@@ -32,6 +32,7 @@ public struct SigningRecord: Codable, Sendable, Equatable {
     /// (`KLEPTON_DISPLAY_OVERRIDE` bzw. `KLEPTON_DISPLAY_SUFFIX`) – damit eine Erneuerung ihn beibehält.
     public var displayName: String?
     public var displaySuffix: String?
+    public var coreMods: Bool?
 
     /// Die Kennung, für die der Eintrag gilt: die gemerkte, sonst – bei Einträgen von vor dieser Angabe – die, unter
     /// der ein Team dieser Art üblicherweise installiert (wie `Renewal.installedBundle`).
@@ -71,6 +72,19 @@ public struct SigningRecord: Codable, Sendable, Equatable {
         guard let record = read(url(store: store, recipe: recipe)) else { return nil }
         migrate(record, store: store, recipe: recipe)
         return record
+    }
+
+    /// A second custom APK of the same game updates its existing imported app.
+    /// Never borrow an ordinary/store build's identity or allocate a fresh one
+    /// just because the imported APK has a different digest.
+    public static func importedIdentity(store: ContentStore, recipe: Recipe,
+                                        imports: ImportedAPKStore = ImportedAPKStore()) -> SigningRecord? {
+        guard recipe.importedAPK != nil else { return nil }
+        if let own = load(store: store, recipe: recipe) { return own }
+        return imports.recipes(for: recipe.id)
+            .filter { $0.package == recipe.package && $0.toolchain.target == recipe.toolchain.target }
+            .compactMap { load(store: store, recipe: $0) }
+            .max { $0.installed < $1.installed }
     }
 
     /// Der Eintrag für eine Kennung; ohne Kennung der der eigentlichen Installation. Fehlt der eigene Eintrag, gilt
@@ -227,6 +241,46 @@ public enum SigningProfiles {
     /// einen Tag alt ist (sieben Tage sind kurz, und wer neu installiert, will die volle Woche); bei einem bezahlten
     /// erst im letzten Monat.
     public static func renewBelow(free: Bool) -> TimeInterval { (free ? 6 : 30) * 86_400 }
+
+    /// Updating a custom APK can reuse the existing app's still-valid profile,
+    /// even while Xcode's online account is unavailable. Explicit renewal still
+    /// asks Apple for a new expiry; expired profiles are never kept for a build.
+    static func refreshThreshold(free: Bool, renewal: Bool, imported: Bool) -> TimeInterval {
+        imported && !renewal ? 0 : renewBelow(free: free)
+    }
+
+    /// Keep the exact app's valid managed profiles in memory while requesting
+    /// renewal. An unavailable online account must not destroy its cached way
+    /// to update before the old expiry. Never overwrite a newly issued profile.
+    static func backupValid(team: String, bundleId: String, now: Date = Date(),
+                            directories: [URL] = cacheDirectories, decode: (URL) -> Data? = decode) -> [URL: Data] {
+        guard team.count == 10, !bundleId.isEmpty else { return [:] }
+        var kept: [URL: Data] = [:]
+        for directory in directories {
+            for file in (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [] {
+                guard ["mobileprovision", "provisionprofile"].contains(file.pathExtension),
+                      let size = ContentStore.fileSize(file), size <= 1 << 20,
+                      let decoded = decode(file), let profile = describe(decoded), profile.managed,
+                      profile.applicationIdentifier == "\(team).\(bundleId)", let expiry = profile.expires, expiry > now,
+                      let bytes = try? Data(contentsOf: file) else { continue }
+                kept[file] = bytes
+            }
+        }
+        return kept
+    }
+
+    @discardableResult
+    static func restoreMissing(_ kept: [URL: Data]) -> Int {
+        var restored = 0
+        for (file, bytes) in kept where !FileManager.default.fileExists(atPath: file.path) {
+            do {
+                try bytes.write(to: file, options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+                restored += 1
+            } catch { continue }
+        }
+        return restored
+    }
 }
 
 /// Eine einzelne Signatur vor dem Bau. Ein Signierschlüssel, den die Xcode-App aus dem App Store angelegt hat,

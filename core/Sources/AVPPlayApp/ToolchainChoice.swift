@@ -11,6 +11,7 @@ extension AppModel {
     /// Die Toolchain, mit der dieses Spiel gebaut wird: die dafür gewählte, sonst die neueste. `nil`, wenn keine
     /// installiert ist – oder die gewählte nicht mehr da ist; dann sagt `blocker(for:)`, was zu tun ist.
     func toolchain(for game: Game) -> Toolchain? {
+        if includesCoreMods(for: game) { return CoreModToolchainSelection.load()?.toolchain() }
         guard let pin = toolchainChoices.games[game.id] else { return toolchain }
         return paths.packager.toolchain(for: pin)
     }
@@ -154,6 +155,14 @@ struct ToolchainBox: View {
     var body: some View {
         GroupBox("Toolchain") {
             VStack(alignment: .leading, spacing: 8) {
+                if model.includesCoreMods(for: game) {
+                    Label(L("Core mods use the included compatible toolchain (\(model.toolchain(for: game)?.name ?? "?")).",
+                            "Core-Mods verwenden die mitgelieferte kompatible Toolchain (\(model.toolchain(for: game)?.name ?? "?"))."),
+                          systemImage: "shippingbox")
+                    Text(L("Turn off Include core mods to use your ordinary toolchain choice.",
+                           "Schalte „Core-Mods einschließen“ aus, um deine normale Toolchain-Wahl zu verwenden."))
+                        .foregroundStyle(.secondary)
+                } else {
                 summary
                 if let arriving = model.toolchainArriving[game.id] {
                     HStack {
@@ -168,6 +177,7 @@ struct ToolchainBox: View {
                 }
                 DisclosureGroup(L("Choose the toolchain for this game", "Toolchain für dieses Spiel wählen"), isExpanded: $expanded) {
                     chooser.padding(.top, 6)
+                }
                 }
             }
             .font(.callout)

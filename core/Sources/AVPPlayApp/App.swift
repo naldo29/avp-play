@@ -26,6 +26,8 @@ struct AVPPlayApp: App {
         .environment(\.locale, L10n.locale)
         .commands {
             CommandGroup(replacing: .newItem) {
+                Button(L("Import APK …", "APK importieren …")) { model.importAPK() }
+                    .keyboardShortcut("i").disabled(model.importingAPK)
                 Button(L("Export Game List …", "Spieleliste exportieren …")) { model.exportGameList() }.keyboardShortcut("e")
                 Button(L("Fetch Saved Games from the Vision Pro", "Spielstände von der Vision Pro holen")) { model.fetchAllSaves() }
             }

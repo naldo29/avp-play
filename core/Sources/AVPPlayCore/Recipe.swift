@@ -15,6 +15,8 @@ public struct Recipe: Codable, Sendable, Identifiable {
     public var files: [RecipeFile]
     public var addons: Addons?
     public var status: Status
+    /// Local APK identity; absent for the shipped/store build.
+    public var importedAPK: ImportedAPK? = nil
     /// Woher das App-Icon kommt, wenn es keinen Store-Eintrag bei Meta gibt.
     public var icon: IconSource?
     /// Ganze Verzeichnisbäume für Spiele, die kein APK sind (siehe `RecipeTree`).
@@ -205,6 +207,12 @@ extension Recipe {
     public func validate() throws {
         guard schema == Recipe.supportedSchema else { throw RecipeError.unsupportedSchema(schema) }
         guard Recipe.isSafeName(id) else { throw RecipeError.invalid(L("identifier '\(id)'", "Kennung '\(id)'")) }
+        if let imported = importedAPK {
+            guard imported.sha256.count == 64, imported.sha256.allSatisfy({ $0.isASCII && $0.isHexDigit }),
+                  let apk = files.first(where: { $0.role == "apk" }), apk.sha256 == imported.sha256, apk.source?.kind == .user else {
+                throw APKImportError.invalid(L("invalid local APK identity", "ungültige lokale APK-Kennung"))
+            }
+        }
         // Steam-Kennungen werden zu Argumenten für Valves Werkzeug: nur Ziffern. Und ein Rezept hat eine Kaufquelle.
         func steamId(_ s: String) -> Bool { (1...24).contains(s.count) && s.allSatisfy { $0.isASCII && $0.isNumber } }
         if let steam = store.steamAppId {

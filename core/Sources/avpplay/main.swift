@@ -127,7 +127,10 @@ avpplay – command line for the AVP Play core library
   avpplay toolchain use <id> --toolchain <folder> | --newest
                                                build this game with that toolchain from now on (an installed package or a
                                                working copy) – or with the newest one again
+  avpplay import-apk <file.apk>               recognize and select your own APK in its game's Version menu
+  avpplay prepare <id> [--core-mods]          prepare the selected APK, icon and native inputs on this Mac; no install
   avpplay install <id> --team <team ID>        build, install, copy missing data, unlock add-on content
+      --core-mods                            use the validated core-mod profile for a compatible imported APK
   avpplay stage <id>                           only copy missing data and add-on content (no build)
   avpplay renew [--dry-run] [--force <id>]     sign installed games again whose signature runs out soon (what the background service does)
   avpplay saves [<id> …] [--saves <folder>]    fetch the saved games of installed games from the Vision Pro to this Mac (nothing changes on the device)
@@ -203,7 +206,10 @@ avpplay – Kommandozeile zur Kern-Bibliothek von AVP Play
   avpplay toolchain use <id> --toolchain <Ordner> | --newest
                                                dieses Spiel ab jetzt mit dieser Toolchain bauen (ein installiertes Paket oder
                                                eine Arbeitskopie) – oder wieder mit der neuesten
+  avpplay import-apk <Datei.apk>              eigenes APK erkennen und im Menü „Fassung“ wählen
+  avpplay prepare <id> [--core-mods]           gewähltes APK, Icon und native Eingaben vorbereiten; keine Installation
   avpplay install <id> --team <Team-ID>        bauen, installieren, Daten ergänzend kopieren, Zusatzinhalte freischalten
+      --core-mods                            geprüftes Core-Mod-Profil für ein kompatibles importiertes APK
   avpplay stage <id>                           nur Daten und Zusatzinhalte ergänzend kopieren (ohne Build)
   avpplay renew [--dry-run] [--force <id>]     installierte Spiele neu signieren, deren Signatur bald abläuft (was der Hintergrunddienst tut)
   avpplay saves [<id> …] [--saves <Ordner>]    Spielstände installierter Spiele von der Vision Pro auf den Mac holen (auf dem Gerät ändert sich nichts)
@@ -261,20 +267,19 @@ func recipe(_ o: Options, at index: Int = 1) -> Recipe {
     do {
         let recipes = RecipeStore(directory: recipesDirectory(o))
         let shipped = try recipes.load(id: o.positional[index])
-        var wanted = StoreUpdate.Choices.load().sources[shipped.id]
+        var choice = StoreUpdate.Choices.load()
         if let named = o.value("source") {
             guard let source = Recipe.Source(rawValue: named) else {
                 fail(L("Unknown purchase source '\(named)' (meta or steam).", "Unbekannte Kaufquelle '\(named)' (meta oder steam)."))
             }
-            wanted = source
+            choice.choose(source: source, for: shipped.id, shipped: shipped.source ?? .meta)
         }
-        guard let wanted, wanted != shipped.source else { return shipped }
-        guard let other = recipes.loadSources().first(where: { $0.id == shipped.id && $0.source == wanted }) else {
-            // Nur wer die Quelle ausdrücklich nennt, bekommt gesagt, dass es sie nicht gibt.
-            if o.value("source") == nil { return shipped }
+        if let named = o.value("source"), let wanted = Recipe.Source(rawValue: named), wanted != shipped.source,
+           !recipes.loadSources().contains(where: { $0.id == shipped.id && $0.source == wanted }) {
             fail(L("There is no \(wanted.rawValue) recipe for \(shipped.title).", "Für \(shipped.title) gibt es kein Rezept aus \(wanted.rawValue)."))
         }
-        return other
+        return StoreUpdate.resolve([shipped], variants: recipes.loadVariants(), sources: recipes.loadSources(),
+                                   drafts: DataLocation.base.appendingPathComponent("drafts"), choices: choice).first ?? shipped
     } catch { fail("\(error)") }
 }
 
@@ -310,11 +315,13 @@ func chosenToolchain(_ o: Options, recipe id: String) -> String? {
 func installRequest(_ o: Options, recipe id: String? = nil) -> InstallRequest {
     // Reihenfolge: ausdrücklich genannt, dann die für das Spiel gewählte, dann das neueste installierte Paket,
     // zuletzt das Arbeitsverzeichnis der Entwicklung neben den Rezepten.
-    let toolchain = o.value("toolchain") ?? ProcessInfo.processInfo.environment["AVPPLAY_TOOLCHAIN"]
+    let profile = o.flags.contains("core-mods") ? CoreModToolchainSelection.load()?.toolchain()?.root.path : nil
+    let toolchain = o.value("toolchain") ?? profile ?? ProcessInfo.processInfo.environment["AVPPLAY_TOOLCHAIN"]
         ?? id.flatMap { chosenToolchain(o, recipe: $0) }
         ?? toolchainPackager(o).installed().first?.root.path
         ?? recipesDirectory(o).deletingLastPathComponent().appendingPathComponent("klepton-fork-test").path
     var request = InstallRequest(toolchain: URL(fileURLWithPath: toolchain).standardizedFileURL.path)
+    request.coreMods = o.flags.contains("core-mods")
     request.account = o.value("account") ?? "default"
     request.locales = (o.values["locale"] ?? []).sorted()
     request.optionalNames = (o.values["with"] ?? []).sorted()
@@ -402,6 +409,19 @@ func selection(_ o: Options, recipe: Recipe, client: MetaClient?) async -> Fetch
 }
 
 switch command {
+case "import-apk":
+    guard o.positional.count == 2 else { fail(L("Give the APK path: avpplay import-apk <file.apk>", "APK-Pfad angeben: avpplay import-apk <Datei.apk>")) }
+    do {
+        let known = RecipeStore(directory: recipesDirectory(o))
+        let family = try known.loadAll() + known.loadVariants() + known.loadSources()
+        let imported = try ImportedAPKStore().register(apk: URL(fileURLWithPath: o.positional[1]), matching: family, store: contentStore(o))
+        var choices = StoreUpdate.Choices.load()
+        choices.chooseImported(imported.importedAPK!.sha256, for: imported.id)
+        try choices.save()
+        print(L("Imported \(imported.title) \(imported.versionName); selected in its Version menu.", "\(imported.title) \(imported.versionName) importiert und im Menü „Fassung“ gewählt."))
+        print(L("Core mods available: \(imported.importedAPK!.coreModsEligible)", "Core-Mods verfügbar: \(imported.importedAPK!.coreModsEligible)"))
+    } catch { fail("\(error)") }
+
 case "recipes":
     do {
         for r in try RecipeStore(directory: recipesDirectory(o)).loadAll() {
@@ -854,6 +874,24 @@ case "devices":
                     + "\(d.reachable ? "erreichbar" : "nicht erreichbar"), Entwicklermodus \(d.developerMode ? "an" : "aus")")
                   + (d.transport.map { L(", connected over \($0.text)", ", verbunden über \($0.text)") } ?? ""))
         }
+    } catch { fail("\(error)") }
+
+case "prepare":
+    let r = recipe(o)
+    let request = installRequest(o, recipe: r.id)
+    do {
+        let chain = try Toolchain(root: URL(fileURLWithPath: request.toolchain))
+        if request.coreMods == true {
+            guard let imported = r.importedAPK, imported.coreModsEligible, chain.supportsCoreMods,
+                  let apk = r.files.first(where: { $0.role == "apk" }),
+                  try Hashing.sha256(of: contentStore(o).url(for: apk, in: r)) == imported.sha256,
+                  CoreModCompatibility.supports(apk: contentStore(o).url(for: apk, in: r), package: r.package, versionCode: r.versionCode) else {
+                throw APKImportError.invalid(L("the selected APK or toolchain does not support core mods", "das gewählte APK oder die Toolchain unterstützt keine Core-Mods"))
+            }
+        }
+        try await Installer(recipe: r, request: request, store: contentStore(o), report: { print($0) }).prepare(chain)
+        print(L("Prepared \(r.title) \(r.versionName), icon and selected APK on this Mac. Nothing installed.",
+                "\(r.title) \(r.versionName), Icon und gewähltes APK auf diesem Mac vorbereitet. Nichts installiert."))
     } catch { fail("\(error)") }
 
 case "install", "stage":

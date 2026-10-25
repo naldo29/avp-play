@@ -311,6 +311,11 @@ struct TrustBadge: View {
             if game.flatApp {
                 return (L("2D App", "2D-App"), "rectangle.on.rectangle", .gray, InstallError.notAVRGame.description)
             }
+            if game.recipe.importedAPK != nil {
+                return (L("Imported APK", "Importiertes APK"), "shippingbox.fill", .gray,
+                        L("Your own APK, matched to this game's recipe. Its modifications are not verified by the project.",
+                          "Dein eigenes APK mit passendem Spielrezept. Seine Änderungen wurden vom Projekt nicht geprüft."))
+            }
             switch game.trust {
             case .verified:
                 return (L("Verified", "Geprüft"), "checkmark.seal.fill", .blue,
@@ -578,6 +583,8 @@ struct StoreVersionBox: View {
 
     private func label(_ v: GameVersion) -> String {
         switch (v.kind, v.isDefault) {
+        case (.imported, _): return L("\(v.versionName) – imported: \(v.importedFileName ?? "APK") [\(String((v.importedSHA256 ?? "").prefix(8)))]",
+                                     "\(v.versionName) – importiert: \(v.importedFileName ?? "APK") [\(String((v.importedSHA256 ?? "").prefix(8)))]")
         case (.verified, true): return L("\(v.versionName) – verified, recommended", "\(v.versionName) – geprüft, empfohlen")
         case (.verified, false): return L("\(v.versionName) – verified", "\(v.versionName) – geprüft")
         case (.store, true): return L("\(v.versionName) – newest in the store", "\(v.versionName) – neueste im Store")
@@ -588,7 +595,7 @@ struct StoreVersionBox: View {
     var body: some View {
         let newer = model.storeUpdate(for: game)
         let versions = model.versions(for: game)
-        if newer != nil || game.testedVersion != nil || versions.count > 1 {
+        if newer != nil || game.testedVersion != nil || versions.count > 1 || !game.draft {
             GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
                     // Die Wahl der Fassung: oben die mit eigenem Rezept des Projekts, darunter, was der Store sonst nennt.
@@ -596,26 +603,43 @@ struct StoreVersionBox: View {
                         let verified = versions.filter { $0.kind == .verified }
                         let others = versions.filter { $0.kind == .store }
                         Picker(L("Version", "Fassung"), selection: Binding(
-                            get: { game.recipe.versionCode },
-                            set: { model.chooseVersion(game, versionCode: $0) })) {
+                            get: { game.recipe.importedAPK.map { "import:\($0.sha256)" } ?? "version:\(game.recipe.versionCode)" },
+                            set: { model.chooseVersion(game, identifier: $0) })) {
                             if !verified.isEmpty {
                                 Section(L("Verified by the project", "Vom Projekt geprüft")) {
-                                    ForEach(verified) { Text(label($0)).tag($0.versionCode) }
+                                    ForEach(verified) { Text(label($0)).tag($0.id) }
                                 }
                             }
                             if !others.isEmpty {
                                 Section(verified.isEmpty ? L("From the Meta Store", "Aus dem Meta-Store")
                                                          : L("Other versions from the Meta Store – not tested with AVP Play",
                                                              "Weitere Fassungen aus dem Meta-Store – mit AVP Play nicht getestet")) {
-                                    ForEach(others) { Text(label($0)).tag($0.versionCode) }
+                                    ForEach(others) { Text(label($0)).tag($0.id) }
+                                }
+                            }
+                            let imported = versions.filter { $0.kind == .imported }
+                            if !imported.isEmpty {
+                                Section(L("Your imported APKs", "Deine importierten APKs")) {
+                                    ForEach(imported) { Text(label($0)).tag($0.id) }
                                 }
                             }
                         }
                         .pickerStyle(.menu)
                         .frame(maxWidth: 460, alignment: .leading)
-                        .disabled(model.preparing.contains(game.id))
+                        .disabled(model.preparing.contains(game.id) || model.isBusy(game.id))
                         .help(L("Which version is downloaded and installed. Changing it changes nothing on the Vision Pro until you install.",
                                 "Welche Fassung geladen und installiert wird. Ein Wechsel ändert nichts auf der Vision Pro, bis du installierst."))
+                    }
+                    Button(L("Import APK …", "APK importieren …")) { model.importAPK() }
+                        .disabled(model.importingAPK || model.isBusy(game.id))
+                    if game.recipe.importedAPK?.coreModsEligible == true {
+                        Toggle(L("Include core mods", "Core-Mods einschließen"), isOn: Binding(
+                            get: { model.includesCoreMods(for: game) },
+                            set: { model.setCoreMods($0, for: game) }))
+                            .disabled(model.isBusy(game.id))
+                        Text(L("Adds the original Scotland2, SongCore and SongDownloader stack, plus BetterSongSearch and Airbuds Search. Airbuds Search uses a refresh token entered in its game settings. Fake ID stays excluded.",
+                               "Ergänzt Scotland2, SongCore und SongDownloader sowie BetterSongSearch und Airbuds Search. Das Airbuds-Token wird in den Spieleinstellungen eingegeben. Fake ID bleibt ausgeschlossen."))
+                            .font(.callout).foregroundStyle(.secondary)
                     }
                     if let tested = game.testedVersion {
                         Label(L("You are using version \(game.recipe.versionName) from the Meta Store – not tested with AVP Play",
@@ -797,11 +821,14 @@ struct GameDetail: View {
 
                 if game.recipe.servers != nil { ServerListBox(game: game) }
 
-                if game.installed { FeedbackBox(game: game) }
+                if game.installed, game.recipe.importedAPK == nil { FeedbackBox(game: game) }
 
                 GroupBox(L("Good to Know", "Gut zu wissen")) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(game.needsSteamAccount
+                        Text(game.recipe.importedAPK != nil
+                             ? L("Your imported APK uses the matching game recipe. Any additional downloads and purchased add-ons follow that recipe's normal account checks.",
+                                 "Dein importiertes APK verwendet das passende Spielrezept. Weitere Downloads und gekaufte Zusatzinhalte folgen dessen üblichen Kontoprüfungen.")
+                             : game.needsSteamAccount
                              ? L("Before anything is downloaded, Steam is asked whether you own this game – by Valve’s own tool, with your sign-in. Without a purchase, nothing is downloaded.", "Vor dem Laden wird bei Steam geprüft, dass du dieses Spiel gekauft hast – mit Valves eigenem Werkzeug und deiner Anmeldung. Ohne Kauf wird nichts geladen.")
                              : game.needsMetaAccount
                              ? L("Before anything is downloaded, Meta is asked whether you own this game. Without a purchase, nothing is downloaded.", "Vor dem Laden wird bei Meta geprüft, dass du dieses Spiel gekauft hast. Ohne Kauf wird nichts geladen.")
@@ -1007,6 +1034,10 @@ struct GameDetail: View {
     }
 
     private var playability: String {
+        if game.recipe.importedAPK != nil {
+            return L("Imported APK: recognition matches the recipe; compatibility depends on your APK's modifications.",
+                     "Importiertes APK: Die Erkennung passt zum Rezept; die Kompatibilität hängt von deinen APK-Änderungen ab.")
+        }
         switch game.trust {
         case .verified: return L("Verified: the project has tested this game on an Apple Vision Pro.", "Geprüft: Das Projekt hat dieses Spiel auf einer Apple Vision Pro getestet.")
         case .community: return L("Community Verified: more users report that it runs than that it does not. The project has not tested it.", "Von Nutzern bestätigt: Mehr Nutzer melden, dass es läuft, als dass es nicht läuft. Das Projekt hat es nicht getestet.")

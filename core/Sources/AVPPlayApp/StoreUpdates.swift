@@ -8,13 +8,16 @@ struct GameVersion: Identifiable, Equatable {
         case verified
         /// Aus dem Store, wie Meta sie nennt: mit AVP Play nicht getestet.
         case store
+        case imported
     }
     let versionCode: Int
     let versionName: String
     let kind: Kind
     /// Die Fassung, die ohne Wahl gilt.
     let isDefault: Bool
-    var id: Int { versionCode }
+    var importedSHA256: String? = nil
+    var importedFileName: String? = nil
+    var id: String { importedSHA256.map { "import:\($0)" } ?? "version:\(versionCode)" }
 }
 
 /// Die Fassungen eines Spiels: nachsehen, was der Store führt, anbieten, wählen lassen.
@@ -37,7 +40,7 @@ extension AppModel {
         // Eine Fassung, zu der das Projekt selbst ein Rezept führt, ist kein ungetestetes Angebot: Wer bewusst eine
         // ältere geprüfte gewählt hat, findet die neuere in der Liste der Fassungen.
         // Nur für die Fassung aus dem Meta-Store: Was der Store dort führt, sagt nichts über die aus Steam.
-        guard !game.draft, game.recipe.source == .meta, let build = storeBuilds[game.id], StoreUpdate.isOffered(build, for: game.recipe),
+        guard game.recipe.importedAPK == nil, !game.draft, game.recipe.source == .meta, let build = storeBuilds[game.id], StoreUpdate.isOffered(build, for: game.recipe),
               !game.verifiedVersions.contains(where: { $0.versionCode == build.versionCode }) else { return nil }
         return build
     }
@@ -126,7 +129,11 @@ extension AppModel {
     /// geltende voran), dann die übrigen, die der Store nennt, die neueste zuerst. Die gerade verwendete steht
     /// immer dabei, auch wenn der Store sie nicht mehr nennt.
     func versions(for game: Game) -> [GameVersion] {
-        guard game.recipe.store.appId != nil, game.recipe.store.pinned != true else { return [] }
+        let imported = ImportedAPKStore().recipes(for: game.id).map {
+            GameVersion(versionCode: $0.versionCode, versionName: $0.versionName, kind: .imported, isDefault: false,
+                        importedSHA256: $0.importedAPK?.sha256, importedFileName: $0.importedAPK?.fileName)
+        }
+        guard game.recipe.store.appId != nil, game.recipe.store.pinned != true else { return game.verifiedVersions + imported }
         var list = game.verifiedVersions
         var known = Set(list.map(\.versionCode))
         var store = storeBuildLists[game.id] ?? []
@@ -143,15 +150,27 @@ extension AppModel {
                                       isDefault: game.recipe.versionCode == draftDefault))
         }
         list += others.sorted { $0.versionCode > $1.versionCode }
-        return list
+        return list + imported
+    }
+
+    func chooseVersion(_ game: Game, identifier: String) {
+        guard !isBusy(game.id), !preparing.contains(game.id) else { return }
+        if let wanted = versions(for: game).first(where: { $0.id == identifier }), let digest = wanted.importedSHA256 {
+            var choices = StoreUpdate.Choices.load()
+            choices.chooseImported(digest, for: game.id)
+            do { try choices.save(); latestChoices = choices; prepareNote[game.id] = nil; refresh() }
+            catch { notice = "\(error)" }
+        } else if identifier.hasPrefix("version:"), let code = Int(identifier.dropFirst("version:".count)) {
+            chooseVersion(game, versionCode: code)
+        }
     }
 
     /// Wählt die Fassung, mit der ein Spiel geladen und installiert wird. Eine Fassung mit eigenem Rezept gilt
     /// sofort; für eine andere aus dem Store wird – einmal je Fassung – Metas Werkzeug nach ihren Dateien gefragt.
     /// Geladen und installiert wird erst, wenn der Nutzer es danach verlangt.
     func chooseVersion(_ game: Game, versionCode: Int) {
-        guard versionCode != game.recipe.versionCode, !preparing.contains(game.id),
-              let wanted = versions(for: game).first(where: { $0.versionCode == versionCode }) else { return }
+        guard game.recipe.importedAPK != nil || versionCode != game.recipe.versionCode, !preparing.contains(game.id),
+              let wanted = versions(for: game).first(where: { $0.versionCode == versionCode && $0.importedSHA256 == nil }) else { return }
         guard !isBusy(game.id) else {
             prepareNote[game.id] = L("A job for this game is running. Switch versions when it has finished.",
                                      "Für dieses Spiel läuft gerade ein Auftrag. Wechsle die Fassung, wenn er fertig ist.")

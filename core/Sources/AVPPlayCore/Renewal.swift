@@ -107,7 +107,7 @@ public enum Renewal {
 
     /// Die mitgelieferten Rezepte und die Entwürfe für nachgeschlagene Spiele; ein mitgeliefertes Rezept für
     /// dieselbe Store-App geht vor (wie in der Übersicht der App).
-    public static func recipes(bundled: URL?, drafts: URL) -> [Recipe] {
+    public static func recipes(bundled: URL?, drafts: URL, imports: ImportedAPKStore = ImportedAPKStore()) -> [Recipe] {
         OtherSources.use(recipes: bundled)
         // Wo der Nutzer die neueste Fassung aus dem Store gewählt hat, wird auch die erneuert (StoreUpdate).
         let shipped = StoreUpdate.resolve(bundled.flatMap { try? RecipeStore(directory: $0).loadAll() } ?? [],
@@ -116,7 +116,15 @@ public enum Renewal {
         let known = Set(shipped.compactMap { $0.store.appId })
         let extra = ((try? RecipeStore(directory: drafts).loadAll()) ?? [])
             .filter { r in r.id.hasPrefix("store-") && !(r.store.appId.map(known.contains) ?? true) }
-        return shipped + extra
+        // An installed imported build still needs renewal when the Version menu
+        // is showing another APK. Preserve its recorded mode and identity.
+        let imported = shipped.flatMap { family in
+            imports.recipes(for: family.id).filter {
+                $0.package == family.package && $0.toolchain.target == family.toolchain.target
+                    && $0.importedAPK?.sha256 != family.importedAPK?.sha256
+            }
+        }
+        return shipped + extra + imported
     }
 
     /// Unter welcher Kennung die Installation auf dem Gerät liegt: die gemerkte, sonst die, unter der ein Team dieser
@@ -176,7 +184,13 @@ public enum Renewal {
                            choices: ToolchainChoices = .load(), packager: ToolchainPackager = ToolchainPackager(root: ToolchainPackager.defaultRoot),
                            preferredDevice: String? = nil, now: Date = Date(), dryRun: Bool = false, force: Set<String> = [],
                            log: @escaping @Sendable (String) -> Void = { _ in }) async -> RenewalReport {
-        let installations = recipes.compactMap { r in SigningRecord.load(store: store, recipe: r).map { (recipe: r, record: $0) } }
+        let recorded = recipes.compactMap { r in SigningRecord.load(store: store, recipe: r).map { (recipe: r, record: $0) } }
+        // Several APK variants may have updated the same app. Only its most
+        // recent installation may renew it; an older record must not undo mods.
+        var seen = Set<String>()
+        let installations = recorded.sorted { $0.record.installed > $1.record.installed }.filter {
+            seen.insert($0.record.resolvedBundleId(target: $0.recipe.toolchain.target)).inserted
+        }
         let due = installations.filter { force.contains($0.recipe.id) || isDue($0.record, now: now) }
         var report = RenewalReport(ran: now, known: installations.count, outcomes: [])
         guard !due.isEmpty else { return report }
@@ -220,8 +234,18 @@ public enum Renewal {
                 outcome(.skipped, L("is running right now; it is renewed at the next check.", "läuft gerade; erneuert wird bei der nächsten Prüfung."))
                 continue
             }
-            guard let toolchain = chosenToolchain(for: recipe, app: app, newest: toolchain, choices: choices, packager: packager,
-                                                  skip: { outcome(.skipped, $0) }) else { continue }
+            let selected: Toolchain?
+            if record.coreMods == true {
+                selected = CoreModToolchainSelection.load()?.toolchain()
+                if selected == nil {
+                    outcome(.skipped, L("the core-mod toolchain is unavailable; the installed mod build was left unchanged.",
+                                        "die Core-Mod-Toolchain ist nicht verfügbar; die installierte Mod-Fassung blieb unverändert."))
+                }
+            } else {
+                selected = chosenToolchain(for: recipe, app: app, newest: toolchain, choices: choices, packager: packager,
+                                           skip: { outcome(.skipped, $0) })
+            }
+            guard let toolchain = selected else { continue }
             guard !ProcessLock.isHeld(ProcessLock.installURL) else {
                 outcome(.skipped, L("another job is building right now; it is renewed at the next check.", "ein anderer Auftrag baut gerade; erneuert wird bei der nächsten Prüfung."))
                 continue
@@ -239,6 +263,7 @@ public enum Renewal {
             request.live = true
             request.displayName = record.displayName
             request.displaySuffix = record.displaySuffix
+            request.coreMods = record.coreMods
             request.storeArt = false
             request.addons = false
             // Ein neu signierter Bau bleibt, was er war: Hatte er die experimentellen Implementierungen an, dann

@@ -79,7 +79,9 @@ public struct GameStatus: Sendable, Equatable {
         var onDevice = OnDevice.unknown
         var builtWith: AppStamp.Built?
         if let apps {
-            let bundle = Toolchain.bundleId(target: r.toolchain.target, prefix: bundlePrefix)
+            let importedRecord = SigningRecord.importedIdentity(store: store, recipe: r)
+            let bundle = importedRecord?.bundleId ?? Toolchain.bundleId(target: r.toolchain.target, prefix: bundlePrefix)
+            let pin = pin ?? (importedRecord?.coreMods == true ? CoreModToolchainSelection.load()?.pin : nil)
             if let app = apps.first(where: { $0.bundleIdentifier == bundle }) {
                 let stamp = "\(app.version ?? "?") (\(app.bundleVersion ?? "?"))"
                 let built = app.bundleVersion.flatMap(AppStamp.parse)

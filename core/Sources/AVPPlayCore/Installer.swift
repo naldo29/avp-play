@@ -83,6 +83,7 @@ public struct InstallRequest: Codable, Sendable, Equatable {
     public var device: String?
     public var bundleId: String?
     public var toolchain: String
+    public var coreMods: Bool?
     public var customIcon: String?
     public var storeArt = true
     /// Mindestabstand zwischen Abrufen bei Meta, in Sekunden.
@@ -314,6 +315,8 @@ public struct Installer: Sendable {
     var resolvedBundleId: String {
         let target = recipe.toolchain.target
         if let given = request.bundleId { return given }
+        if let record = SigningRecord.importedIdentity(store: store, recipe: recipe),
+           request.team == nil || request.team == record.team, let saved = record.bundleId { return saved }
         if let team = request.team {
             return AppleTeams.isFree(team) ? Toolchain.bundleId(target: target, prefix: Toolchain.defaultBundlePrefix(freeTeam: team))
                                            : Toolchain.defaultBundleId(target: target)
@@ -325,8 +328,14 @@ public struct Installer: Sendable {
         let device = try control.pick(udid: request.device)
         let bundle = resolvedBundleId
         let toolchain = try Toolchain(root: URL(fileURLWithPath: request.toolchain))
-        guard toolchain.satisfies(minCommit: recipe.toolchain.minCommit) else {
-            throw ToolchainError.tooOld(have: toolchain.commit(), need: recipe.toolchain.minCommit)
+        let required = request.coreMods == true ? CoreModCompatibility.minimumToolchainCommit : recipe.toolchain.minCommit
+        guard toolchain.satisfies(minCommit: required) else {
+            throw ToolchainError.tooOld(have: toolchain.commit(), need: required)
+        }
+        if request.coreMods == true {
+            guard recipe.importedAPK?.coreModsEligible == true, toolchain.supportsCoreMods else {
+                throw APKImportError.invalid(L("core mods are unavailable for the selected APK or toolchain", "Core-Mods sind für das gewählte APK oder die Toolchain nicht verfügbar"))
+            }
         }
         return (device, bundle, toolchain)
     }
@@ -505,6 +514,14 @@ public struct Installer: Sendable {
     func build() async throws {
         guard let team = request.team else { throw InstallError.teamMissing }
         if request.resign == true { try buildInputs() } else { _ = try localFiles() }
+        if request.coreMods == true {
+            guard let imported = recipe.importedAPK, imported.coreModsEligible,
+                  let apk = recipe.files.first(where: { $0.role == "apk" }),
+                  try Hashing.sha256(of: store.url(for: apk, in: recipe)) == imported.sha256,
+                  CoreModCompatibility.supports(apk: store.url(for: apk, in: recipe), package: recipe.package, versionCode: recipe.versionCode) else {
+                throw APKImportError.invalid(L("the selected APK no longer matches the validated core-mod build", "das gewählte APK entspricht nicht mehr der geprüften Core-Mod-Fassung"))
+            }
+        }
         let (device, bundle, toolchain) = try target()
         let commit = toolchain.commit()
         report(L("Device: \(device.name) (visionOS \(device.osVersion)); app: \(bundle); toolchain: \(commit)",
@@ -537,8 +554,18 @@ public struct Installer: Sendable {
         // Ein neuer Bau verlängert die Signatur nur, wenn Xcode dafür ein neues Profil holt (siehe `SigningProfiles`).
         // Bei einem kostenlosen Team gilt das für jede Installation, sonst nur fürs Erneuern.
         let free = AppleTeams.isFree(team)
+        let keptProfiles = SigningProfiles.backupValid(team: team, bundleId: bundle)
+        var signingBuildSucceeded = false
+        defer {
+            if !signingBuildSucceeded, SigningProfiles.restoreMissing(keptProfiles) > 0 {
+                report(L("Signing refresh did not complete; the existing valid profile was restored with its original expiry.",
+                         "Die Signaturerneuerung wurde nicht abgeschlossen; das gültige vorhandene Profil wurde mit seinem ursprünglichen Ablaufdatum wiederhergestellt."))
+            }
+        }
         if free || request.resign == true,
-           SigningProfiles.removeStale(team: team, bundleId: bundle, fresherThan: SigningProfiles.renewBelow(free: free)) > 0 {
+           SigningProfiles.removeStale(team: team, bundleId: bundle,
+                                       fresherThan: SigningProfiles.refreshThreshold(free: free, renewal: request.resign == true,
+                                                                                     imported: recipe.importedAPK != nil)) > 0 {
             report(L("Signing: a new profile is requested from Apple, so that the game opens for the full time again.",
                      "Signatur: Bei Apple wird ein neues Profil angefordert, damit das Spiel wieder die volle Zeit gilt."))
         }
@@ -588,13 +615,16 @@ public struct Installer: Sendable {
                                       resolution: metalFX ? request.resolution : nil,
                                       xrPrediction: xrPrediction,
                                       displayName: request.displayName, displaySuffix: request.displaySuffix,
-                                      controllerMode: request.controllerMode ?? (request.resign == true ? toolchain.builtControllerMode(recipe: recipe) : .standard))
+                                      controllerMode: request.controllerMode ?? (request.resign == true ? toolchain.builtControllerMode(recipe: recipe) : .standard),
+                                      coreMods: request.coreMods == true)
+        signingBuildSucceeded = true
         report(String(format: L("Built and installed (%.0f s).", "Gebaut und installiert (%.0f s)."), Date().timeIntervalSince(started)))
         // Womit signiert wurde und bis wann: Daran erinnert die App rechtzeitig vor dem Ablauf.
         var record = SigningRecord(team: team, free: free, installed: Date(), expires: toolchain.signingExpiry(recipe: recipe),
                                    bundleId: bundle)
         record.displayName = request.displayName
         record.displaySuffix = request.displaySuffix
+        record.coreMods = request.coreMods
         // Ohne ausdrückliche Kennung ist es immer die eigentliche Installation; mit einer entscheidet `save`
         // (`SigningRecord.isLive`): Eine Testkopie wird es auch dann nicht, wenn das Spiel noch keinen Eintrag hat.
         record.save(store: store, recipe: recipe, live: request.live ?? (request.bundleId == nil ? true : nil))
@@ -608,7 +638,7 @@ public struct Installer: Sendable {
     }
 
     /// Icon bereitlegen und die Toolchain vorbereiten.
-    func prepare(_ toolchain: Toolchain) async throws {
+    public func prepare(_ toolchain: Toolchain) async throws {
         if let path = request.customIcon {
             guard AppIcon.custom(at: URL(fileURLWithPath: path)) != nil else { throw InstallError.badIcon(path) }
             let target = Toolchain.customIconURL(store: store, recipe: recipe)

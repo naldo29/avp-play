@@ -136,10 +136,12 @@ public enum StoreUpdate {
         /// Spiele, für die eine andere Kaufquelle gewählt ist als die des mitgelieferten Rezepts: Kennung → Quelle.
         /// Ohne Eintrag gilt die des Rezepts (Meta). Die Wahl der Fassung oben gilt nur für diese.
         public var sources: [String: Recipe.Source]
-        public init(latest: Set<String> = [], versions: [String: Int] = [:], sources: [String: Recipe.Source] = [:]) {
+        public var importedAPKs: [String: String]
+        public init(latest: Set<String> = [], versions: [String: Int] = [:], sources: [String: Recipe.Source] = [:], importedAPKs: [String: String] = [:]) {
             self.latest = latest
             self.versions = versions
             self.sources = sources
+            self.importedAPKs = importedAPKs
         }
 
         // Eine Datei aus der Zeit vor `versions` nennt nur `latest`; sie gilt weiter.
@@ -148,17 +150,27 @@ public enum StoreUpdate {
             latest = try c.decodeIfPresent(Set<String>.self, forKey: .latest) ?? []
             versions = try c.decodeIfPresent([String: Int].self, forKey: .versions) ?? [:]
             sources = try c.decodeIfPresent([String: Recipe.Source].self, forKey: .sources) ?? [:]
+            importedAPKs = try c.decodeIfPresent([String: String].self, forKey: .importedAPKs) ?? [:]
         }
 
         /// Wählt für ein Spiel die Kaufquelle; die des mitgelieferten Rezepts braucht keinen Eintrag.
         public mutating func choose(source: Recipe.Source, for recipeId: String, shipped: Recipe.Source = .meta) {
+            importedAPKs.removeValue(forKey: recipeId)
             sources[recipeId] = source == shipped ? nil : source
         }
 
         /// Wählt für ein Spiel eine Fassung; `nil` heißt: die, die ohne Wahl gilt.
         public mutating func choose(_ versionCode: Int?, for recipeId: String) {
+            importedAPKs.removeValue(forKey: recipeId)
             latest.remove(recipeId)
             versions[recipeId] = versionCode
+        }
+
+        public mutating func chooseImported(_ sha256: String, for recipeId: String) {
+            latest.remove(recipeId)
+            versions.removeValue(forKey: recipeId)
+            sources.removeValue(forKey: recipeId)
+            importedAPKs[recipeId] = sha256
         }
 
         public static var url: URL { DataLocation.base.appendingPathComponent("store-updates.json") }
@@ -190,8 +202,13 @@ public enum StoreUpdate {
     /// Ist für ein Spiel eine andere Kaufquelle gewählt (`sources`, Rezepte aus `recipes/sources`), gilt deren
     /// Rezept – eine Fassung lässt sich dort nicht wählen: Steam nennt keine früheren.
     public static func resolve(_ shipped: [Recipe], variants: [Recipe] = [], sources: [Recipe] = [], drafts: URL,
-                               choices: Choices = .load()) -> [Recipe] {
+                               choices: Choices = .load(), imports: ImportedAPKStore = ImportedAPKStore()) -> [Recipe] {
         shipped.map { tested in
+            if let digest = choices.importedAPKs[tested.id],
+               let imported = imports.recipe(for: tested.id, sha256: digest),
+               imported.package == tested.package, imported.toolchain.target == tested.toolchain.target {
+                return imported
+            }
             if let wanted = choices.sources[tested.id], wanted != tested.source,
                let other = sources.first(where: { $0.id == tested.id && $0.source == wanted
                                                   && $0.toolchain.target == tested.toolchain.target }) {

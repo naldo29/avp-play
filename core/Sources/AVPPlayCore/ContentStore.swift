@@ -16,7 +16,8 @@ public struct ContentStore: Sendable {
     }
 
     public func directory(for recipe: Recipe) -> URL {
-        root.appendingPathComponent("\(recipe.id)-\(recipe.versionCode)", isDirectory: true)
+        let suffix = recipe.importedAPK.map { "-import-\($0.sha256)" } ?? ""
+        return root.appendingPathComponent("\(recipe.id)-\(recipe.versionCode)\(suffix)", isDirectory: true)
     }
 
     public func url(for file: RecipeFile, in recipe: Recipe) -> URL {

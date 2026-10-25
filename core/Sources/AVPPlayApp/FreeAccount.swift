@@ -10,7 +10,11 @@ extension AppModel {
     var usesFreeTeam: Bool { team?.free == true }
 
     /// Unter welcher Kennung ein Spiel installiert wird.
-    func bundleId(for game: Game) -> String { "\(bundlePrefix).\(game.recipe.toolchain.target)" }
+    func bundleId(for game: Game) -> String {
+        if let previous = SigningRecord.importedIdentity(store: paths.store, recipe: game.recipe),
+           previous.team == teamId, let bundle = previous.bundleId { return bundle }
+        return "\(bundlePrefix).\(game.recipe.toolchain.target)"
+    }
 
     /// Die Apps dieses Kontos, die dieses Programm auf dem Gerät installiert hat; `nil`, wenn das Gerät nicht
     /// erreichbar ist.

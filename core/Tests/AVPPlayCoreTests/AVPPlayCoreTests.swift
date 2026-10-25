@@ -888,6 +888,7 @@ final class LockedBox<T>: @unchecked Sendable {
     init(_ value: T) { self.value = value }
     func set(_ new: T) { lock.lock(); value = new; lock.unlock() }
     func get() -> T { lock.lock(); defer { lock.unlock() }; return value }
+    func update(_ body: (inout T) -> Void) { lock.lock(); defer { lock.unlock() }; body(&value) }
 }
 
 final class JobTests: XCTestCase {
@@ -1152,12 +1153,11 @@ final class CoverTests: XCTestCase {
     func testLoaderAsksOncePerGameAndNeverMoreThanTwoAtATime() async throws {
         let cache = CoverCache(directory: folder())
         let original = picture(width: 1280, height: 720)
-        let calls = LockedBox<[String]>([]), active = LockedBox<Int>(0), peak = LockedBox<Int>(0)
+        let state = LockedBox((calls: [String](), active: 0, peak: 0))
         let loader = CoverLoader(cache: cache, concurrent: 2) { id in
-            calls.set(calls.get() + [id])
-            active.set(active.get() + 1); peak.set(max(peak.get(), active.get()))
+            state.update { $0.calls.append(id); $0.active += 1; $0.peak = max($0.peak, $0.active) }
             try? await Task.sleep(for: .milliseconds(40))
-            active.set(active.get() - 1)
+            state.update { $0.active -= 1 }
             return id == "404" ? nil : original
         }
         // Dasselbe Spiel in Liste und Spielseite zugleich, dazu weitere.
@@ -1167,15 +1167,15 @@ final class CoverTests: XCTestCase {
         let missing = await none
         XCTAssertTrue(results.allSatisfy { $0 != nil })
         XCTAssertNil(missing)
-        XCTAssertEqual(calls.get().filter { $0 == "1" }.count, 1, "ein Abruf je Spiel")
-        XCTAssertLessThanOrEqual(peak.get(), 2)
+        XCTAssertEqual(state.get().calls.filter { $0 == "1" }.count, 1, "ein Abruf je Spiel")
+        XCTAssertLessThanOrEqual(state.get().peak, 2)
 
-        let before = calls.get().count
+        let before = state.get().calls.count
         let again = await loader.image(appId: "2")
         let stillNone = await loader.image(appId: "404")
         XCTAssertNotNil(again)
         XCTAssertNil(stillNone)
-        XCTAssertEqual(calls.get().count, before, "weder das Geholte noch das Fehlende wird neu gefragt")
+        XCTAssertEqual(state.get().calls.count, before, "weder das Geholte noch das Fehlende wird neu gefragt")
         // Ein neuer Lader findet die Bilder auf der Platte.
         let second = CoverLoader(cache: cache) { _ in XCTFail("nicht aus dem Netz"); return nil }
         let fromDisk = await second.image(appId: "3")

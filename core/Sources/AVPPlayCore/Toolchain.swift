@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 public enum ToolchainError: Error, CustomStringConvertible {
     case notAToolchain(String)
@@ -143,14 +144,10 @@ public struct Toolchain: Sendable {
             AppIcon.steamLibrary(appId: $0, cacheRoots: AppIcon.steamCacheRoots + [Toolchain.steamArtURL(store: store, recipe: recipe)])
         } : nil
         let steamMark = steamArt.map { " steam-\(AppIcon.fingerprint($0).prefix(16))" } ?? ""
-        let want = "\(apk.sha256 ?? "ohne-pruefsumme") \(recipe.versionCode) icon4 \(customMark) \(coverMark)\(steamMark)"
+        let actualAPK = try Self.stageAPK(from: source, to: root.appendingPathComponent(localName), expected: apk.sha256)
+        let want = "\(actualAPK) \(recipe.versionCode) icon4 \(customMark) \(coverMark)\(steamMark)"
         let fm = FileManager.default
 
-        let apkTarget = root.appendingPathComponent(localName)
-        if ContentStore.fileSize(apkTarget) != ContentStore.fileSize(source) {
-            try? fm.removeItem(at: apkTarget)
-            try fm.copyItem(at: source, to: apkTarget)
-        }
         if (try? String(contentsOf: stamp, encoding: .utf8)) == want { return }
 
         let fresh = root.appendingPathComponent(".\(target).qi-new", isDirectory: true)
@@ -168,6 +165,29 @@ public struct Toolchain: Sendable {
         try want.write(to: fresh.appendingPathComponent(".qi-prepared"), atomically: true, encoding: .utf8)
         try? fm.removeItem(at: tree)
         try fm.moveItem(at: fresh, to: tree)
+    }
+
+    /// Same-length custom APKs are distinct inputs. Publish a complete copy
+    /// atomically; replacing an output link must not alter its original target.
+    @discardableResult
+    static func stageAPK(from source: URL, to destination: URL, expected: String? = nil) throws -> String {
+        let digest = try Hashing.sha256(of: source)
+        if let expected, expected != digest {
+            throw APKImportError.invalid(L("the APK changed since it was imported; import it again", "das APK wurde seit dem Import verändert; importiere es erneut"))
+        }
+        if ContentStore.fileSize(source) == ContentStore.fileSize(destination),
+           (try? Hashing.sha256(of: destination)) == digest { return digest }
+        let temporary = destination.deletingLastPathComponent().appendingPathComponent(".apk-\(UUID().uuidString).new")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        try FileManager.default.copyItem(at: source, to: temporary)
+        guard try Hashing.sha256(of: temporary) == digest else {
+            throw APKImportError.invalid(L("the APK changed while preparing the build", "das APK wurde während der Build-Vorbereitung verändert"))
+        }
+        let result = temporary.withUnsafeFileSystemRepresentation { from in
+            destination.withUnsafeFileSystemRepresentation { to in rename(from!, to!) }
+        }
+        guard result == 0 else { throw CocoaError(.fileWriteUnknown) }
+        return digest
     }
 
     /// Ist das APK das des Rezepts? Der Versionscode muss stimmen. Das Paket auch – außer das Rezept kennt keines:
@@ -367,7 +387,7 @@ public struct Toolchain: Sendable {
                                 extraEnvironment: [String: String] = [:],
                                 metalFX: Bool = false, resolution: Int? = nil, xrPrediction: Bool = false,
                                 displayName: String? = nil, displaySuffix: String? = nil,
-                                controllerMode: ControllerMode = .standard) throws {
+                                controllerMode: ControllerMode = .standard, coreMods: Bool = false) throws {
         guard team.count == 10, team.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else {
             throw RecipeError.invalid(L("team ID '\(team)' (expected: 10 characters)", "Team-ID '\(team)' (erwartet: 10 Zeichen)"))
         }
@@ -421,8 +441,9 @@ public struct Toolchain: Sendable {
         let handle = try FileHandle(forWritingTo: log)
         defer { try? handle.close() }
         let p = Process()
-        p.executableURL = root.appendingPathComponent("visionos/run.sh")
-        p.arguments = ["device"]
+        let command = try buildCommand(coreMods: coreMods)
+        p.executableURL = command.executable
+        p.arguments = command.arguments
         p.currentDirectoryURL = root
         p.environment = env
         p.standardOutput = handle

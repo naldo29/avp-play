@@ -59,6 +59,14 @@ if [ -n "$TOOLCHAIN" ] && [ -f "$TOOLCHAIN" ] && [ -f "$TOOLCHAIN.json" ]; then
 else
   echo "!! kein Toolchain-Paket gefunden – das Programmpaket entsteht ohne Toolchain" >&2
 fi
+# Optional, explicit custom profile. No APK/OBB, signing or account material is
+# part of this package; imported game files remain in the user's local library.
+if [ -n "${AVPPLAY_COREMODS_ARCHIVE:-}" ]; then
+  test -f "$AVPPLAY_COREMODS_ARCHIVE"
+  test -f "$AVPPLAY_COREMODS_ARCHIVE.json"
+  mkdir -p "$NEW/Contents/Resources/core-mods"
+  cp "$AVPPLAY_COREMODS_ARCHIVE" "$AVPPLAY_COREMODS_ARCHIVE.json" "$NEW/Contents/Resources/core-mods/"
+fi
 # Die eigenen Texte stehen im Programm (L("English", "Deutsch")). Die beiden Ordner sagen macOS nur, in welchen
 # Sprachen es seine eigenen Menüs und Dialoge zeigen darf.
 for lang in en de; do
@@ -78,6 +86,7 @@ cat > "$NEW/Contents/Info.plist" <<PLIST
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
+  <key>AVPPlayCustomAPKBuild</key><true/>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleLocalizations</key><array><string>en</string><string>de</string></array>
   <key>LSMinimumSystemVersion</key><string>14.0</string>

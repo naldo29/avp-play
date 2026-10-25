@@ -41,6 +41,7 @@ struct Game: Identifiable {
     /// Wie weit dem Spiel zu trauen ist. Was der Katalog sagt, gilt – dort legt das Projekt fest oder zählen die
     /// Meldungen. Ohne Katalog (kein Netz, abgeschaltet, Sonderapp) gilt das mitgelieferte Rezept.
     var trust: Trust {
+        if recipe.importedAPK != nil { return .untested }
         // Geprüft ist eine Fassung, nicht ein Name: die neuere aus dem Store hat das Projekt nicht gesehen.
         if testedVersion != nil { return .untested }
         // Für die Steam-Fassung gilt, was die Steam-Liste des Katalogs sagt – ihr eigenes Urteil, nicht das des Meta-Stores.
@@ -65,7 +66,7 @@ struct Game: Identifiable {
     }
     var incompatible: Bool { trust == .incompatible }
     /// Sonderapps kommen nicht aus dem Meta-Store; für sie wird kein Meta-Konto gebraucht.
-    var needsMetaAccount: Bool { recipe.store.appId != nil }
+    var needsMetaAccount: Bool { recipe.store.appId != nil && (recipe.importedAPK == nil || !status.stockComplete) }
     /// Aus dem eigenen Steam-Kauf: Besitz und Zusatzinhalte bestätigt Steam, geladen wird mit Valves Werkzeug.
     var needsSteamAccount: Bool { recipe.source == .steam }
     /// Gibt es das Spiel im Meta-Store – als geltende Kaufquelle oder als wählbare andere?
@@ -109,6 +110,7 @@ enum Owned { case notApplicable, unknown, yes, no }
 
 /// Was der Nutzer für ein Spiel zusätzlich gewählt hat.
 struct GameOptions: Codable, Equatable {
+    var coreModsByAPK: [String: Bool]?
     /// Sprachen, deren wählbare Dateien mitkommen (Kürzel wie im Rezept).
     var locales: [String] = []
     /// Weitere wählbare Dateien, mit Namen.
@@ -182,6 +184,7 @@ final class AppModel: ObservableObject {
     @Published var xcodeProblem: String?
     @Published var jobs: [Job] = []
     @Published var selectedJob: String?
+    @Published var importingAPK = false
     @Published var runningJob: String?
     @Published var queued: [String] = []
     @Published var logs: [String: LogTail] = [:]
@@ -959,6 +962,10 @@ final class AppModel: ObservableObject {
     /// Was einer Installation im Weg steht, als Satz mit der nächsten Handlung – oder `nil`.
     func blocker(for game: Game) -> String? {
         if let why = storeBlocker { return why }
+        if includesCoreMods(for: game), toolchain(for: game) == nil {
+            return L("The core-mod toolchain is unavailable. Reopen the custom APK edition to restore it.",
+                     "Die Core-Mod-Toolchain fehlt. Öffne die Fassung mit APK-Import erneut, um sie wiederherzustellen.")
+        }
         if xcodeProblem != nil { return L("Xcode is missing. “Setup” tells you what to do.", "Xcode fehlt. Unter „Einrichtung“ steht, was zu tun ist.") }
         if toolchain == nil { return L("The toolchain is not installed yet (see “Setup”).", "Die Toolchain ist noch nicht installiert (siehe „Einrichtung“).") }
         if !teamValid { return L("The Apple team ID is still missing (see “Setup”).", "Die Apple-Team-ID fehlt noch (siehe „Einrichtung“).") }
@@ -992,7 +999,8 @@ final class AppModel: ObservableObject {
         }
         // Ein Entwurf, der ohne Toolchain nachgeschlagen wurde, nennt noch keinen Mindeststand; der wird beim Anlegen
         // des Auftrags eingesetzt.
-        if let t = toolchain(for: game), !game.recipe.toolchain.minCommit.isEmpty, !t.satisfies(minCommit: game.recipe.toolchain.minCommit) {
+        let minimumCommit = includesCoreMods(for: game) ? CoreModCompatibility.minimumToolchainCommit : game.recipe.toolchain.minCommit
+        if let t = toolchain(for: game), !minimumCommit.isEmpty, !t.satisfies(minCommit: minimumCommit) {
             return pin == nil ? L("This game needs a newer toolchain than the one installed.", "Dieses Spiel braucht eine neuere Toolchain als die installierte.")
                               : L("This game needs a newer toolchain than the one chosen for it (see “Toolchain” below).",
                                   "Dieses Spiel braucht eine neuere Toolchain als die dafür gewählte (siehe unten unter „Toolchain“).")
@@ -1260,6 +1268,14 @@ final class AppModel: ObservableObject {
     /// Das Programmpaket bringt eine Toolchain mit. Ist keine installiert oder nur eine ältere, wird die
     /// mitgelieferte installiert – geprüft wie jedes andere Paket (Größe, Prüfsumme, Inhalt).
     func installBundledToolchainIfNewer() {
+        Task.detached {
+            do { _ = try CoreModToolchainSelection.installBundled() }
+            catch {
+                await MainActor.run {
+                    self.notice = L("Core-mod support could not be prepared: \(error)", "Core-Mod-Unterstützung ließ sich nicht vorbereiten: \(error)")
+                }
+            }
+        }
         guard let folder = Bundle.main.resourceURL?.appendingPathComponent("toolchain", isDirectory: true),
               let archive = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil))?
                   .first(where: { $0.lastPathComponent.hasSuffix(".tar.gz") }) else { return }
@@ -1477,6 +1493,7 @@ final class AppModel: ObservableObject {
             try? encoder.encode(recipe).write(to: draftsDirectory.appendingPathComponent("\(recipe.id).json"), options: .atomic)
         }
         var request = InstallRequest(toolchain: toolchain?.root.path ?? "")
+        request.coreMods = includesCoreMods(for: game)
         if downloadOnly { request.downloadOnly = true }
         request.team = teamId
         request.device = device?.udid
@@ -1487,6 +1504,7 @@ final class AppModel: ObservableObject {
         request.locales = chosen.locales
         request.optionalNames = chosen.optionalNames
         request.addons = addons ?? chosen.addons
+        if recipe.importedAPK != nil, account != .signedIn { request.addons = false }
         // Nur eine Installation spielt Spielstände zurück; ein Abgleich von Inhalten rührt sie nicht an.
         if steps.contains(.build) { request.restoreSaves = chosen.restoreSaves ?? true }
         if steps.contains(.build) { request.controllerMode = controllerMode }
@@ -1497,6 +1515,8 @@ final class AppModel: ObservableObject {
         // Ein eigenes Präfix oder das eines kostenlosen Teams: dann steht die Kennung im Auftrag.
         let prefix = bundlePrefix
         if prefix != Toolchain.defaultBundlePrefix() { request.bundleId = "\(prefix).\(game.recipe.toolchain.target)" }
+        if let previous = SigningRecord.importedIdentity(store: paths.store, recipe: recipe),
+           previous.team == teamId, let bundle = previous.bundleId { request.bundleId = bundle }
         // Was dieses Programm installiert, ist immer die eigentliche Installation – auch nach einem neuen Präfix.
         request.live = true
         do {

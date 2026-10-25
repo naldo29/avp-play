@@ -28,6 +28,13 @@ extension AppModel {
     /// Sieht nach, ob es eine neuere Fassung gibt. Von selbst höchstens alle zwanzig Stunden und nur, wenn es
     /// in den Einstellungen nicht abgestellt ist; `manual` fragt sofort und sagt auch „alles aktuell“.
     func checkForUpdate(manual: Bool) async {
+        if Bundle.main.object(forInfoDictionaryKey: "AVPPlayCustomAPKBuild") as? Bool == true {
+            if manual {
+                notice = L("This is the custom APK edition. Install updates built from this fork to keep APK import and core mods.",
+                           "Dies ist die Fassung mit eigenen APKs. Installiere Updates dieses Forks, um APK-Import und Core-Mods zu behalten.")
+            }
+            return
+        }
         if !manual {
             guard autoUpdateCheck, Bundle.main.bundleIdentifier != nil, Snapshot.directory == nil,
                   Date().timeIntervalSince1970 - lastUpdateCheck > 20 * 3600 else { return }

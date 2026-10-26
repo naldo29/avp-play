@@ -1,3 +1,22 @@
+# Custom APK and core-mod edition
+
+This fork adds custom APK import, imported versions in the game’s Version menu,
+and an optional pinned Beat Saber 1.40.8 core/search-mod profile. See
+[CUSTOM-APK.md](CUSTOM-APK.md) for usage and build instructions.
+
+The startup fix in native profile **348 / d8c3f18** stages the game metadata
+needed to find its OBB. Earlier core-mod installs could show a black screen after
+Start. Build the bundled profile from the corrected
+[native source](https://github.com/naldo29/beat-saber-with-custom-song-support/tree/custom-songs),
+then package AVP Play with `AVPPLAY_COREMODS_ARCHIVE` set to that archive and
+`AVPPLAY_TOOLCHAIN_ARCHIVE` set to the ordinary toolchain archive.
+The corrected local Mac build is **367**; the supported modded game remains
+**1.40.8**, and the 1.45.3 port is stopped. The user confirmed startup and custom
+song listing after the metadata repair. Authenticated Airbuds calls remain untested.
+
+The source release contains no game data, saves or signing material. Use your
+own compatible game files and Apple account. The upstream AVP Play guide follows.
+
 # AVP Play
 
 AVP Play is a Mac app that installs VR games **you already own** on your Apple Vision Pro.

@@ -17,3 +17,13 @@ Build the core profile from the committed Klepton fork with `ports/scotland2/too
 The custom edition does not replace itself from the official update feed. Keep the original signed app as a rollback; rebuilding locally produces an ad-hoc-signed Mac app, not a notarized upstream release.
 
 CLI: `avpplay import-apk <file.apk>`, then `avpplay prepare <id> --core-mods` for host preparation or `avpplay install <id> --core-mods --team <team>`. Explicit `--bundle-id` overrides the recorded imported identity. Do not change it when updating an existing installation whose saves you want to retain.
+
+Startup repair (profile 348 / d8c3f18): use the corrected native source linked in
+the fork README. Its AVP adapter validates versionCode 1716 and the game manifest,
+then runs the normal metadata-only staging pass after installation. A failed
+copy fails the job. This prevents a fresh core-mod installation from selecting
+1.28’s fallback OBB name and showing a black screen after Start. Build-only mode
+performs no device copy. Four isolated installer regression cases, a complete
+visionOS build/signature check, and user-confirmed startup/custom-song listing
+passed. The source ZIP and profile reproduced byte for byte. This does not
+establish authenticated Airbuds functionality.

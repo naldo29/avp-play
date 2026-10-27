@@ -315,8 +315,8 @@ public struct Installer: Sendable {
     var resolvedBundleId: String {
         let target = recipe.toolchain.target
         if let given = request.bundleId { return given }
-        if request.coreMods == true && recipe.versionCode == 3237 {
-            return CoreModCompatibility.existingTestBundleId
+        if let required = CoreModCompatibility.requiredBundleId(versionCode: recipe.versionCode, coreMods: request.coreMods == true) {
+            return required
         }
         if let record = SigningRecord.importedIdentity(store: store, recipe: recipe),
            request.team == nil || request.team == record.team, let saved = record.bundleId { return saved }

@@ -11,6 +11,9 @@ extension AppModel {
 
     /// Unter welcher Kennung ein Spiel installiert wird.
     func bundleId(for game: Game) -> String {
+        if let required = CoreModCompatibility.requiredBundleId(versionCode: game.recipe.versionCode, coreMods: includesCoreMods(for: game)) {
+            return required
+        }
         if let previous = SigningRecord.importedIdentity(store: paths.store, recipe: game.recipe),
            previous.team == teamId, let bundle = previous.bundleId { return bundle }
         return "\(bundlePrefix).\(game.recipe.toolchain.target)"
@@ -20,7 +23,9 @@ extension AppModel {
     /// erreichbar ist.
     var freeTeamApps: [InstalledApp]? {
         guard usesFreeTeam, let apps = installedApps else { return nil }
-        return Installer.appsSharingPrefix(with: "\(bundlePrefix).x", in: apps)
+        let ordinary = Installer.appsSharingPrefix(with: "\(bundlePrefix).x", in: apps)
+        let test = apps.filter { $0.bundleIdentifier == CoreModCompatibility.existingTestBundleId }
+        return ordinary + test.filter { item in !ordinary.contains { $0.bundleIdentifier == item.bundleIdentifier } }
     }
 
     /// Installationen neuer Spiele, die schon laufen oder warten – sie belegen bald einen der Plätze.

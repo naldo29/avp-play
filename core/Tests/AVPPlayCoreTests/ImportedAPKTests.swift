@@ -191,6 +191,22 @@ final class ImportedAPKTests: XCTestCase {
         XCTAssertNil(choices.importedAPKs["saber"])
     }
 
+    func testModernCoreModsReuseTestIdentityDespiteAnExistingNormalSigningRecord() throws {
+        let root = try temporary(), store = ContentStore(root: root)
+        var imported = try recipe(String(repeating: "a", count: 64)); imported.versionCode = 3237
+        let record = SigningRecord(team: "AAAAAAAAAA", free: true, installed: Date(), expires: nil,
+                                   bundleId: "normal.existing.game")
+        record.save(store: store, recipe: imported, live: true)
+        var request = InstallRequest(toolchain: root.path); request.team = record.team; request.coreMods = true
+        XCTAssertEqual(Installer(recipe: imported, request: request, store: store, report: { _ in }).resolvedBundleId,
+                       CoreModCompatibility.existingTestBundleId)
+        XCTAssertEqual(CoreModCompatibility.requiredBundleId(versionCode: 3237, coreMods: true), CoreModCompatibility.existingTestBundleId)
+        XCTAssertNil(CoreModCompatibility.requiredBundleId(versionCode: 3237, coreMods: false))
+        XCTAssertNil(CoreModCompatibility.requiredBundleId(versionCode: 1716, coreMods: true))
+        request.coreMods = false
+        XCTAssertEqual(Installer(recipe: imported, request: request, store: store, report: { _ in }).resolvedBundleId, record.bundleId)
+    }
+
     func testImportCanReuseLocalFolderRecipeWithoutChangingItsDataInventory() throws {
         let root = try temporary(), shipped = root.appendingPathComponent("recipes"), drafts = root.appendingPathComponent("drafts")
         try FileManager.default.createDirectory(at: shipped, withIntermediateDirectories: true)

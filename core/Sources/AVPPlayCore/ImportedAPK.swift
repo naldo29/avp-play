@@ -84,6 +84,11 @@ enum APKEntryReader {
 public enum CoreModCompatibility {
     public static let minimumToolchainCommit = "1c5229a38ccf25aff6734afe271714b7d0d7aa41"
     public static let existingTestBundleId = "dev.klepton.beatsaber140.scotland2.test"
+    /// The experimental port must update the already allocated test app.
+    /// Shared by the GUI's free-account check and the install request resolver.
+    public static func requiredBundleId(versionCode: Int, coreMods: Bool) -> String? {
+        coreMods && versionCode == 3237 ? existingTestBundleId : nil
+    }
     static let members: [(name: String, bytes: Int, sha256: String)] = [
         ("lib/arm64-v8a/libil2cpp.so", 85_827_064, "edae5059bd5a85ba354eb679e1cdcc3816116d2e2b29b3a16a70c05b56dd07cb"),
         ("lib/arm64-v8a/libunity.so", 20_382_560, "8203664e3b9203e9731251ea958ca2b1d9f0fc1e3b10032c34a61e5ee8068891"),

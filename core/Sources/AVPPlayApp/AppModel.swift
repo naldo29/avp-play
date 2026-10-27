@@ -1517,6 +1517,9 @@ final class AppModel: ObservableObject {
         if prefix != Toolchain.defaultBundlePrefix() { request.bundleId = "\(prefix).\(game.recipe.toolchain.target)" }
         if let previous = SigningRecord.importedIdentity(store: paths.store, recipe: recipe),
            previous.team == teamId, let bundle = previous.bundleId { request.bundleId = bundle }
+        if let required = CoreModCompatibility.requiredBundleId(versionCode: recipe.versionCode, coreMods: request.coreMods == true) {
+            request.bundleId = required
+        }
         // Was dieses Programm installiert, ist immer die eigentliche Installation – auch nach einem neuen Präfix.
         request.live = true
         do {

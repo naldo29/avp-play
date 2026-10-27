@@ -127,7 +127,7 @@ avpplay – command line for the AVP Play core library
   avpplay toolchain use <id> --toolchain <folder> | --newest
                                                build this game with that toolchain from now on (an installed package or a
                                                working copy) – or with the newest one again
-  avpplay import-apk <file.apk>               recognize and select your own APK in its game's Version menu
+  avpplay import-apk <file.apk-or-folder>               recognize and select your own APK in its game's Version menu
   avpplay prepare <id> [--core-mods]          prepare the selected APK, icon and native inputs on this Mac; no install
   avpplay install <id> --team <team ID>        build, install, copy missing data, unlock add-on content
       --core-mods                            use the validated core-mod profile for a compatible imported APK
@@ -410,11 +410,11 @@ func selection(_ o: Options, recipe: Recipe, client: MetaClient?) async -> Fetch
 
 switch command {
 case "import-apk":
-    guard o.positional.count == 2 else { fail(L("Give the APK path: avpplay import-apk <file.apk>", "APK-Pfad angeben: avpplay import-apk <Datei.apk>")) }
+    guard o.positional.count == 2 else { fail(L("Give the APK or game-folder path: avpplay import-apk <file.apk-or-folder>", "APK-Pfad angeben: avpplay import-apk <Datei.apk>")) }
     do {
         let known = RecipeStore(directory: recipesDirectory(o))
         let family = try known.importCandidates()
-        let imported = try ImportedAPKStore().register(apk: URL(fileURLWithPath: o.positional[1]), matching: family, store: contentStore(o))
+        let imported = try ImportedAPKStore().register(input: URL(fileURLWithPath: o.positional[1]), matching: family, store: contentStore(o))
         var choices = StoreUpdate.Choices.load()
         choices.chooseImported(imported.importedAPK!.sha256, for: imported.id)
         try choices.save()

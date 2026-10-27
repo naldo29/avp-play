@@ -630,7 +630,7 @@ struct StoreVersionBox: View {
                         .help(L("Which version is downloaded and installed. Changing it changes nothing on the Vision Pro until you install.",
                                 "Welche Fassung geladen und installiert wird. Ein Wechsel ändert nichts auf der Vision Pro, bis du installierst."))
                     }
-                    Button(L("Import APK …", "APK importieren …")) { model.importAPK() }
+                    Button(L("Import APK or Folder …", "APK oder Ordner importieren …")) { model.importAPK() }
                         .disabled(model.importingAPK || model.isBusy(game.id))
                     if game.recipe.importedAPK?.coreModsEligible == true {
                         Toggle(L("Include core mods", "Core-Mods einschließen"), isOn: Binding(

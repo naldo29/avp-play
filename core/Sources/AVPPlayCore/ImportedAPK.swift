@@ -20,7 +20,7 @@ public enum APKImportError: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .invalid(let detail):
-            return L("APK import: \(detail)", "APK-Import: \(detail)")
+            return L("Game import: \(detail)", "Spieleimport: \(detail)")
         }
     }
 }
@@ -157,6 +157,13 @@ public struct ImportedAPKStore: Sendable {
     }
 
     public func register(apk: URL, matching recipes: [Recipe], store: ContentStore) throws -> Recipe {
+        let recipe = try prepareAPK(apk: apk, matching: recipes, store: store)
+        try reuseRequiredFiles(for: recipe, store: store)
+        try saveRegistration(recipe)
+        return recipe
+    }
+
+    func prepareAPK(apk: URL, matching recipes: [Recipe], store: ContentStore) throws -> Recipe {
         let fm = FileManager.default
         guard apk.pathExtension.lowercased() == "apk", let size = ContentStore.fileSize(apk), size > 0, size <= 4 << 30 else {
             throw APKImportError.invalid(L("choose a regular APK file no larger than 4 GB", "wähle eine normale APK-Datei mit höchstens 4 GB"))
@@ -200,11 +207,13 @@ public struct ImportedAPKStore: Sendable {
         } else {
             try fm.moveItem(at: temporary, to: destination)
         }
-        try reuseRequiredFiles(for: recipe, store: store)
-        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(recipe).write(to: url(recipeId: recipe.id, sha256: digest), options: .atomic)
         return recipe
+    }
+
+    func saveRegistration(_ recipe: Recipe) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(recipe).write(to: url(recipeId: recipe.id, sha256: recipe.importedAPK!.sha256), options: .atomic)
     }
 
     /// Reuse only complete, hash-matching game data already in this local

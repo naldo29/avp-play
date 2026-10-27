@@ -6,12 +6,13 @@ extension AppModel {
     func importAPK() {
         guard !importingAPK, let recipesURL = paths.recipes else { return }
         let panel = NSOpenPanel()
-        panel.title = L("Import APK", "APK importieren")
-        panel.message = L("Choose an APK from your own game. AVP Play will match its package and version to a recipe and add it to that game's Version menu.",
-                          "Wähle ein APK deines eigenen Spiels. AVP Play ordnet Paket und Fassung einem Rezept zu und ergänzt das Menü „Fassung“ des Spiels.")
-        panel.allowedContentTypes = [UTType(filenameExtension: "apk") ?? .data]
+        panel.title = L("Import APK or Folder", "APK oder Ordner importieren")
+        panel.message = L("Choose your APK or its complete game folder, including matching OBB/add-ons. The imported version will appear in the game's Version menu.",
+                          "Wähle dein APK oder den vollständigen Spieleordner mit passenden OBB-/Zusatzdateien. Der Import erscheint im Menü „Fassung“ des Spiels.")
+        panel.allowedContentTypes = [.folder, UTType(filenameExtension: "apk") ?? .data]
         panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
         guard panel.runModal() == .OK, let file = panel.url else { return }
         guard StoreLocation.isAvailable(paths.store.root) else {
             notice = L("The downloads disk is not available.", "Das Laufwerk für Downloads ist nicht erreichbar.")
@@ -24,11 +25,11 @@ extension AppModel {
                 let recipe = try await Task.detached(priority: .userInitiated) {
                     let known = RecipeStore(directory: recipesURL)
                     let family = try known.importCandidates(drafts: drafts)
-                    return try ImportedAPKStore().register(apk: file, matching: family, store: store)
+                    return try ImportedAPKStore().register(input: file, matching: family, store: store)
                 }.value
                 if isBusy(recipe.id) {
                     refresh()
-                    notice = L("APK imported. Select it from Version after this game's current job finishes.",
+                    notice = L("Game imported. Select it from Version after this game's current job finishes.",
                                "APK importiert. Wähle es unter „Fassung“, wenn der aktuelle Auftrag dieses Spiels beendet ist.")
                     importingAPK = false
                     return

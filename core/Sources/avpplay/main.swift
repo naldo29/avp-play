@@ -287,7 +287,7 @@ func recipe(_ o: Options, at index: Int = 1) -> Recipe {
 func otherSourceBuilds(of recipe: Recipe, _ o: Options) -> [Int] {
     let recipes = RecipeStore(directory: recipesDirectory(o))
     let all = ((try? recipes.loadAll()) ?? []) + recipes.loadVariants() + recipes.loadSources()
-    return all.filter { $0.id == recipe.id && $0.source != recipe.source }.map(\.versionCode)
+    return all.filter { $0.id == recipe.id && $0.hasDifferentPurchaseSource(from: recipe) }.map(\.versionCode)
 }
 
 func toolchainPackager(_ o: Options) -> ToolchainPackager {

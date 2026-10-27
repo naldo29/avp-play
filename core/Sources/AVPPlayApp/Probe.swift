@@ -152,9 +152,9 @@ enum Probe {
         // Dasselbe Spiel aus einer anderen Kaufquelle: ein eigenes Rezept des Projekts, keine „Fassung aus dem
         // Store“ – und was unter den Versionscodes der anderen Quelle auf dem Gerät liegt, ist nicht dieses.
         let otherSources = tested.map { t in sources.filter { $0.id == t.id } } ?? []
-        let switched = tested.map { $0.source != r.source } ?? false
+        let switched = tested.map { $0.hasDifferentPurchaseSource(from: r) } ?? false
         let family = (tested.map { [$0] } ?? []) + (tested.map { t in variants.filter { $0.id == t.id } } ?? []) + otherSources
-        let foreign = family.filter { $0.source != r.source }.map(\.versionCode)
+        let foreign = family.filter { $0.hasDifferentPurchaseSource(from: r) }.map(\.versionCode)
         let verified = switched || tested.map { $0.versionCode == r.versionCode } ?? true || own.contains { $0.versionCode == r.versionCode }
         var g = Game(recipe: r,
              status: GameStatus.of(recipe: r, store: paths.store, apps: apps, toolchainVersion: toolchainRevision, pin: pin,

@@ -29,3 +29,5 @@ passed. The source ZIP and profile reproduced byte for byte. This does not
 establish authenticated Airbuds functionality.
 
 Folder imports check the complete matching recipe before making a new version selectable, copy files into an isolated APK-hash directory and retain the original files. APFS clones avoid another physical multi-GB copy. Only exact size/hash-matching cached files may fill missing recipe inputs, such as an index generated during previous local preparation. A wrong supplied file is rejected even when a correct cached copy exists. Existing damaged imports and symbolic links are never overwritten. Folder imports do not unlock add-on entitlements or change headset data.
+
+A local folder with no recorded purchase source is not labeled as a Steam build. A known older installation remains an update; the existing data container is retained. Explicitly different known Meta/Steam sources still use the original protection.

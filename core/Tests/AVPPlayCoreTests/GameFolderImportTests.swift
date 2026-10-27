@@ -100,6 +100,23 @@ final class GameFolderImportTests: XCTestCase {
         XCTAssertThrowsError(try GameFolderInputs(folder: root).dataFiles(for: recipe, cachedFiles: [cache]))
     }
 
+    func testLocalFolderIsAnOlderGameUpdateRatherThanAForeignSteamInstallation() throws {
+        let root = try temporary(), (meta, _, _) = try fixture(root)
+        var local = meta; local.store = .init(appId: nil)
+        var steam = meta; steam.store = .init(appId: nil, steamAppId: "456")
+        XCTAssertFalse(local.hasDifferentPurchaseSource(from: meta))
+        XCTAssertFalse(meta.hasDifferentPurchaseSource(from: local))
+        XCTAssertFalse(meta.hasDifferentPurchaseSource(from: meta))
+        XCTAssertTrue(meta.hasDifferentPurchaseSource(from: steam))
+        let family = [meta, steam]
+        let foreign = Set(family.filter { $0.hasDifferentPurchaseSource(from: local) }.map(\.versionCode))
+        XCTAssertTrue(foreign.isEmpty)
+        let old = InstalledApp(bundleIdentifier: "fixture.saber", name: "Saber", version: "1.40.8", bundleVersion: "1716.347.1")
+        let status = GameStatus.of(recipe: local, store: ContentStore(root: root), apps: [old], toolchainVersion: 351,
+                                   bundlePrefix: "fixture", otherSourceBuilds: foreign)
+        guard case .olderGame = status.onDevice else { return XCTFail("A known older game must remain updateable without removal") }
+    }
+
     func testChangedSourceCannotLeaveAnUnverifiedTargetOrTemporaryFile() throws {
         let root = try temporary(), (_, source, file) = try fixture(root)
         let target = root.appendingPathComponent("store/main.3237.obb")

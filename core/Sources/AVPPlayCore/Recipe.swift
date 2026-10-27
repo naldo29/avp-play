@@ -70,6 +70,12 @@ public struct Recipe: Codable, Sendable, Identifiable {
         if store.steamAppId != nil { return .steam }
         return nil
     }
+    /// A self-provided folder can have no purchase source. That does not
+    /// establish that another version came from a different store.
+    public func hasDifferentPurchaseSource(from other: Recipe) -> Bool {
+        guard let mine = source, let theirs = other.source else { return false }
+        return mine != theirs
+    }
     public struct Toolchain: Codable, Sendable {
         public var target: String
         public var minCommit: String
@@ -368,7 +374,7 @@ public enum OtherSources {
         let store = RecipeStore(directory: directory)
         let family = ((try? store.load(id: recipe.id)).map { [$0] } ?? [])
             + store.loadVariants().filter { $0.id == recipe.id } + store.loadSources().filter { $0.id == recipe.id }
-        let codes = Set(family.filter { $0.source != source }.map(\.versionCode))
+        let codes = Set(family.filter { $0.hasDifferentPurchaseSource(from: recipe) }.map(\.versionCode))
         cache[key] = codes
         return codes
     }

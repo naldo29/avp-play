@@ -18,12 +18,12 @@ extension AppModel {
             return
         }
         importingAPK = true
-        let store = paths.store
+        let store = paths.store, drafts = draftsDirectory
         Task {
             do {
                 let recipe = try await Task.detached(priority: .userInitiated) {
                     let known = RecipeStore(directory: recipesURL)
-                    let family = try known.loadAll() + known.loadVariants() + known.loadSources()
+                    let family = try known.importCandidates(drafts: drafts)
                     return try ImportedAPKStore().register(apk: file, matching: family, store: store)
                 }.value
                 if isBusy(recipe.id) {

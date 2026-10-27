@@ -191,6 +191,23 @@ final class ImportedAPKTests: XCTestCase {
         XCTAssertNil(choices.importedAPKs["saber"])
     }
 
+    func testImportCanReuseLocalFolderRecipeWithoutChangingItsDataInventory() throws {
+        let root = try temporary(), shipped = root.appendingPathComponent("recipes"), drafts = root.appendingPathComponent("drafts")
+        try FileManager.default.createDirectory(at: shipped, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
+        let original = try recipe()
+        var modern = original; modern.versionCode = 3237; modern.versionName = "1.45.3_30054"
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(original).write(to: shipped.appendingPathComponent("saber.json"))
+        try encoder.encode(modern).write(to: drafts.appendingPathComponent("imported-saber-3237.json"))
+        try encoder.encode(recipe(String(repeating: "a", count: 64))).write(to: drafts.appendingPathComponent("already-imported.json"))
+        try Data("invalid".utf8).write(to: drafts.appendingPathComponent("invalid.json"))
+        let found = try RecipeStore(directory: shipped).importCandidates(drafts: drafts)
+        XCTAssertEqual(found.map(\.versionCode), [1716, 3237])
+        XCTAssertEqual(try encoder.encode(found[1]), try encoder.encode(modern))
+        XCTAssertEqual(try encoder.encode(RecipeStore(directory: shipped).load(id: "saber")), try encoder.encode(original))
+    }
+
     func testUnity63CoreModsRequireMatchingVersionAndEveryActualGameFingerprint() {
         var hashes = Dictionary(uniqueKeysWithValues: CoreModCompatibility.unity63Members.map { ($0.name, $0.sha256) })
         XCTAssertTrue(CoreModCompatibility.matches(package: "com.beatgames.beatsaber", versionCode: 3237, hashes: hashes))

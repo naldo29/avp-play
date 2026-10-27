@@ -413,7 +413,7 @@ case "import-apk":
     guard o.positional.count == 2 else { fail(L("Give the APK path: avpplay import-apk <file.apk>", "APK-Pfad angeben: avpplay import-apk <Datei.apk>")) }
     do {
         let known = RecipeStore(directory: recipesDirectory(o))
-        let family = try known.loadAll() + known.loadVariants() + known.loadSources()
+        let family = try known.importCandidates()
         let imported = try ImportedAPKStore().register(apk: URL(fileURLWithPath: o.positional[1]), matching: family, store: contentStore(o))
         var choices = StoreUpdate.Choices.load()
         choices.chooseImported(imported.importedAPK!.sha256, for: imported.id)

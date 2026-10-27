@@ -421,6 +421,18 @@ public struct RecipeStore: Sendable {
         .sorted { $0.id < $1.id }
     }
 
+    /// APK imports may reuse a validated local folder recipe, including its
+    /// exact OBB/add-on inventory. Already imported APK recipes are not bases.
+    public func importCandidates(drafts: URL = DataLocation.base.appendingPathComponent("drafts", isDirectory: true)) throws -> [Recipe] {
+        let shipped = try loadAll() + loadVariants() + loadSources()
+        let local = ((try? FileManager.default.contentsOfDirectory(at: drafts, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .compactMap { try? load(url: $0) }
+            .filter { $0.importedAPK == nil }
+        return shipped + local
+    }
+
     /// Der Unterordner mit weiteren geprüften Fassungen: `versions/<Kennung>-<Versionscode>.json`.
     public static let variantsFolder = "versions"
 

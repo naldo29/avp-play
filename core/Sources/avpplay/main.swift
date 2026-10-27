@@ -882,7 +882,7 @@ case "prepare":
     do {
         let chain = try Toolchain(root: URL(fileURLWithPath: request.toolchain))
         if request.coreMods == true {
-            guard let imported = r.importedAPK, imported.coreModsEligible, chain.supportsCoreMods,
+            guard let imported = r.importedAPK, imported.coreModsEligible, chain.supportsCoreMods(versionCode: r.versionCode),
                   let apk = r.files.first(where: { $0.role == "apk" }),
                   try Hashing.sha256(of: contentStore(o).url(for: apk, in: r)) == imported.sha256,
                   CoreModCompatibility.supports(apk: contentStore(o).url(for: apk, in: r), package: r.package, versionCode: r.versionCode) else {

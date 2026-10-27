@@ -191,6 +191,17 @@ final class ImportedAPKTests: XCTestCase {
         XCTAssertNil(choices.importedAPKs["saber"])
     }
 
+    func testUnity63CoreModsRequireMatchingVersionAndEveryActualGameFingerprint() {
+        var hashes = Dictionary(uniqueKeysWithValues: CoreModCompatibility.unity63Members.map { ($0.name, $0.sha256) })
+        XCTAssertTrue(CoreModCompatibility.matches(package: "com.beatgames.beatsaber", versionCode: 3237, hashes: hashes))
+        XCTAssertFalse(CoreModCompatibility.matches(package: "com.beatgames.beatsaber", versionCode: 1716, hashes: hashes))
+        XCTAssertFalse(CoreModCompatibility.matches(package: "com.other.game", versionCode: 3237, hashes: hashes))
+        hashes[CoreModCompatibility.unity63Members[1].name] = String(repeating: "0", count: 64)
+        XCTAssertFalse(CoreModCompatibility.matches(package: "com.beatgames.beatsaber", versionCode: 3237, hashes: hashes))
+        hashes.removeValue(forKey: CoreModCompatibility.unity63Members[0].name)
+        XCTAssertFalse(CoreModCompatibility.matches(package: "com.beatgames.beatsaber", versionCode: 3237, hashes: hashes))
+    }
+
     func testImportedSelectionResolvesPinnedRecipeWithoutChangingItsOriginal() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("avp-import-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

@@ -52,6 +52,17 @@ public struct CoreModToolchainSelection: Codable, Sendable {
 }
 
 extension Toolchain {
+    public func supportsCoreMods(versionCode: Int) -> Bool {
+        guard supportsCoreMods else { return false }
+        if versionCode == 1716 { return true }
+        guard versionCode == 3237,
+              FileManager.default.fileExists(atPath: root.appendingPathComponent("ports/scotland2/tools/avp_play_1453.py").path),
+              let data = try? Data(contentsOf: root.appendingPathComponent("ports/scotland2/port1453/selected-mods.json")),
+              let profile = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let game = profile["game"] as? [String: Any] else { return false }
+        return profile["runtimeProfile"] as? String == "1.45.3" && game["versionCode"] as? Int == 3237
+    }
+
     public var supportsCoreMods: Bool {
         FileManager.default.fileExists(atPath: root.appendingPathComponent("ports/scotland2/tools/avp_play.py").path)
             && FileManager.default.fileExists(atPath: root.appendingPathComponent("ports/scotland2/selected-mods.json").path)

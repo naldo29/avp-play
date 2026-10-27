@@ -55,7 +55,7 @@ extension AppModel {
 
     func setCoreMods(_ enabled: Bool, for game: Game) {
         guard let imported = game.recipe.importedAPK, imported.coreModsEligible else { return }
-        if enabled, CoreModToolchainSelection.load()?.toolchain() == nil {
+        if enabled, CoreModToolchainSelection.load()?.toolchain()?.supportsCoreMods(versionCode: game.recipe.versionCode) != true {
             notice = L("The core-mod toolchain is not installed in this copy of AVP Play.",
                        "Die Core-Mod-Toolchain ist in dieser Kopie von AVP Play nicht installiert.")
             return

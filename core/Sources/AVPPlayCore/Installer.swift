@@ -315,6 +315,9 @@ public struct Installer: Sendable {
     var resolvedBundleId: String {
         let target = recipe.toolchain.target
         if let given = request.bundleId { return given }
+        if request.coreMods == true && recipe.versionCode == 3237 {
+            return CoreModCompatibility.existingTestBundleId
+        }
         if let record = SigningRecord.importedIdentity(store: store, recipe: recipe),
            request.team == nil || request.team == record.team, let saved = record.bundleId { return saved }
         if let team = request.team {
@@ -333,7 +336,11 @@ public struct Installer: Sendable {
             throw ToolchainError.tooOld(have: toolchain.commit(), need: required)
         }
         if request.coreMods == true {
-            guard recipe.importedAPK?.coreModsEligible == true, toolchain.supportsCoreMods else {
+            if recipe.versionCode == 3237 && bundle != CoreModCompatibility.existingTestBundleId {
+                throw APKImportError.invalid(L("Use the existing Scotland2 Test app identity for the 1.45.3 port.",
+                                               "Für den 1.45.3-Port die bestehende Scotland2-Test-App-Kennung verwenden."))
+            }
+            guard recipe.importedAPK?.coreModsEligible == true, toolchain.supportsCoreMods(versionCode: recipe.versionCode) else {
                 throw APKImportError.invalid(L("core mods are unavailable for the selected APK or toolchain", "Core-Mods sind für das gewählte APK oder die Toolchain nicht verfügbar"))
             }
         }

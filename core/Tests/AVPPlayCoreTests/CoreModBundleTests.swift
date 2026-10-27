@@ -2,6 +2,27 @@ import XCTest
 @testable import AVPPlayCore
 
 final class CoreModBundleTests: XCTestCase {
+    func testUnity63RequiresItsOwnBundledBuilderAndProfile() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("avp-unity63-profile-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent("ports/scotland2/tools"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: root.appendingPathComponent("visionos"), withIntermediateDirectories: true)
+        try "fixture".write(to: root.appendingPathComponent("visionos/run.sh"), atomically: true, encoding: .utf8)
+        for name in ["tools/avp_play.py", "selected-mods.json"] {
+            try "fixture".write(to: root.appendingPathComponent("ports/scotland2/" + name), atomically: true, encoding: .utf8)
+        }
+        let toolchain = try Toolchain(root: root)
+        XCTAssertTrue(toolchain.supportsCoreMods(versionCode: 1716))
+        XCTAssertFalse(toolchain.supportsCoreMods(versionCode: 3237))
+        let profile = root.appendingPathComponent("ports/scotland2/port1453")
+        try fm.createDirectory(at: profile, withIntermediateDirectories: true)
+        try #"{"runtimeProfile":"1.45.3","game":{"versionCode":3237}}"#.write(to: profile.appendingPathComponent("selected-mods.json"), atomically: true, encoding: .utf8)
+        XCTAssertFalse(toolchain.supportsCoreMods(versionCode: 3237))
+        try "fixture".write(to: root.appendingPathComponent("ports/scotland2/tools/avp_play_1453.py"), atomically: true, encoding: .utf8)
+        XCTAssertTrue(toolchain.supportsCoreMods(versionCode: 3237))
+        XCTAssertFalse(toolchain.supportsCoreMods(versionCode: 3148))
+    }
     func testUpdatedBundleWithSameGitBaseInstallsNewContentAndKeepsRollback() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("avp-core-update-\(UUID().uuidString)")

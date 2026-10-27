@@ -1,21 +1,14 @@
 # Custom APK and core-mod edition
 
-This fork adds custom APK import, imported versions in the game’s Version menu,
-and an optional pinned Beat Saber 1.40.8 core/search-mod profile. See
-[CUSTOM-APK.md](CUSTOM-APK.md) for usage and build instructions.
+This fork adds custom APK import, imported versions in the game’s Version menu, and an optional core/search-mod switch. See [CUSTOM-APK.md](CUSTOM-APK.md) for the import workflow.
 
-The startup fix in native profile **348 / d8c3f18** stages the game metadata
-needed to find its OBB. Earlier core-mod installs could show a black screen after
-Start. Build the bundled profile from the corrected
-[native source](https://github.com/naldo29/beat-saber-with-custom-song-support/tree/custom-songs),
-then package AVP Play with `AVPPLAY_COREMODS_ARCHIVE` set to that archive and
-`AVPPLAY_TOOLCHAIN_ARCHIVE` set to the ordinary toolchain archive.
-The corrected local Mac build is **367**; the supported modded game remains
-**1.40.8**, and the 1.45.3 port is stopped. The user confirmed startup and custom
-song listing after the metadata repair. Authenticated Airbuds calls remain untested.
+The `port/beat-saber-1.45.3` branch adds the exact Beat Saber **1.45.3_30054 / 3237** fingerprint and its separate Unity 6.3 builder. It preserves the 1.40.8 profile and the startup metadata repair. The modern profile includes the original Scotland2, SongCore, SongDownloader, BetterSongSearch and Airbuds implementations; Fake ID is excluded. The experimental installer uses the existing Scotland2 Test application identity.
 
-The source release contains no game data, saves or signing material. Use your
-own compatible game files and Apple account. The upstream AVP Play guide follows.
+Host validation passed, including the full AVP suite (333 tests, five skipped, zero failures). All 25 modern library outputs matched an independent rebuild. A local visionOS release candidate was built and signed; **1.45.3 headset startup/gameplay and authenticated Airbuds calls remain untested**. The working 1.40.8 application remains the physical rollback.
+
+Build the native source profile from the matching [native port branch](https://github.com/naldo29/beat-saber-with-custom-song-support/tree/port/beat-saber-1.45.3), following its `ports/scotland2/port1453/README.md`. Its adapter requires a prepared, validated local workspace configured through `core-mods-build-inputs.json`; importing an APK alone does not download or reconstruct that workspace. Package AVP Play with `AVPPLAY_COREMODS_ARCHIVE` set to the deterministic source profile and, optionally, `AVPPLAY_TOOLCHAIN_ARCHIVE` set to your ordinary public toolchain archive. The local experimental Mac build is **1.3.2.3 / 368**.
+
+Public packages contain source and redistributable graphics only. Your APK/OBB, game artwork, songs/saves, account and signing material stay local.
 
 # AVP Play
 

@@ -83,22 +83,37 @@ enum APKEntryReader {
 /// version label alone must never enable the core-mod switch.
 public enum CoreModCompatibility {
     public static let minimumToolchainCommit = "1c5229a38ccf25aff6734afe271714b7d0d7aa41"
+    public static let existingTestBundleId = "dev.klepton.beatsaber140.scotland2.test"
     static let members: [(name: String, bytes: Int, sha256: String)] = [
         ("lib/arm64-v8a/libil2cpp.so", 85_827_064, "edae5059bd5a85ba354eb679e1cdcc3816116d2e2b29b3a16a70c05b56dd07cb"),
         ("lib/arm64-v8a/libunity.so", 20_382_560, "8203664e3b9203e9731251ea958ca2b1d9f0fc1e3b10032c34a61e5ee8068891"),
         ("assets/bin/Data/Managed/Metadata/global-metadata.dat", 16_841_972, "1814358a82213ff8ab48b088eae65c4039801f2ca0e9ec48157e74d84f329c17")
     ]
 
+    static let unity63Members: [(name: String, bytes: Int, sha256: String)] = [
+        ("lib/arm64-v8a/libil2cpp.so", 130_464_944, "bb560407d856fdd8f00ac3026967b5b10c3af4dbcfa3650ac3fa41d58a3744eb"),
+        ("lib/arm64-v8a/libunity.so", 24_495_168, "4bd2583ea13fa77b13a5ff22ddc4508347f54a087c62995efe19ff8d944cef43"),
+        ("assets/bin/Data/Managed/Metadata/global-metadata.dat", 21_238_284, "34859f9dbfeb2dcd5f6ebe3ce64d682c836bcf40c97b2055f414a151dba9c5b8")
+    ]
+
+    static func members(for versionCode: Int) -> [(name: String, bytes: Int, sha256: String)]? {
+        switch versionCode {
+        case 1716: return members
+        case 3237: return unity63Members
+        default: return nil
+        }
+    }
+
     public static func matches(package: String?, versionCode: Int, hashes: [String: String]) -> Bool {
-        package == "com.beatgames.beatsaber" && versionCode == 1716
-            && members.allSatisfy { hashes[$0.name] == $0.sha256 }
+        guard package == "com.beatgames.beatsaber", let selected = members(for: versionCode) else { return false }
+        return selected.allSatisfy { hashes[$0.name] == $0.sha256 }
     }
 
     public static func supports(apk: URL, package: String?, versionCode: Int) -> Bool {
-        guard package == "com.beatgames.beatsaber", versionCode == 1716,
+        guard package == "com.beatgames.beatsaber", let selected = members(for: versionCode),
               let names = try? APKEntryReader.names(in: apk) else { return false }
         var hashes: [String: String] = [:]
-        for member in members {
+        for member in selected {
             guard names.filter({ $0 == member.name }).count == 1,
                   let actual = try? APKEntryReader.hash(member.name, in: apk, maximumBytes: member.bytes),
                   actual.bytes == member.bytes else { return false }

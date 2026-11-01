@@ -755,7 +755,6 @@ struct GameDetail: View {
                                 .font(.callout).foregroundStyle(.secondary)
                                 .multilineTextAlignment(.trailing).frame(maxWidth: 280, alignment: .trailing)
                         }
-                    }
                         Button {
                             let panel = NSOpenPanel()
                             panel.canChooseFiles = true
@@ -773,6 +772,7 @@ struct GameDetail: View {
                         .disabled(model.localImportBlocker(for: game) != nil)
                         .help(L("Use files already on this Mac instead of downloading this game's selected version.",
                                 "Bereits vorhandene Dateien statt eines Downloads dieser gewählten Fassung verwenden."))
+                    }
                 }
 
                 if game.draft { untestedBox }

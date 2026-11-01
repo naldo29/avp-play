@@ -756,6 +756,23 @@ struct GameDetail: View {
                                 .multilineTextAlignment(.trailing).frame(maxWidth: 280, alignment: .trailing)
                         }
                     }
+                        Button {
+                            let panel = NSOpenPanel()
+                            panel.canChooseFiles = true
+                            panel.canChooseDirectories = true
+                            panel.allowsMultipleSelection = true
+                            panel.message = L("Select an APK, companion game files, or a folder for \(game.recipe.title) \(game.recipe.versionName).",
+                                              "APK, weitere Spieldateien oder einen Ordner für \(game.recipe.title) \(game.recipe.versionName) auswählen.")
+                            if panel.runModal() == .OK {
+                                model.importLocalGame(game, from: panel.urls)
+                            }
+                        } label: {
+                            Text(L("Import Local Game …", "Lokales Spiel importieren …")).frame(minWidth: 150)
+                        }
+                        .controlSize(.large)
+                        .disabled(model.localImportBlocker(for: game) != nil)
+                        .help(L("Use files already on this Mac instead of downloading this game's selected version.",
+                                "Bereits vorhandene Dateien statt eines Downloads dieser gewählten Fassung verwenden."))
                 }
 
                 if game.draft { untestedBox }

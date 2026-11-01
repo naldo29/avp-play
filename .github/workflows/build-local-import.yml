@@ -1,0 +1,45 @@
+name: Build AVP Play Local Import for Apple Silicon
+
+on:
+  push:
+    branches:
+      - local-game-import-macos
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-app:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Swift sources and tests
+        run: |
+          cd core
+          swift test
+      - name: Download official Klepton toolchain package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download --repo myMartek/avp-play --pattern 'klepton-toolchain-*.tar.gz*' --dir dist
+          ls -lh dist/
+          test -n "$(find dist -maxdepth 1 -name 'klepton-toolchain-*.tar.gz' -print -quit)"
+      - name: Build the Mac app
+        run: |
+          cd core
+          AVPPLAY_APP_VERSION=1.1.16 AVPPLAY_APP_BUILD=1001 tools/make-app.sh
+          test -f '../dist/AVP Play.app/Contents/MacOS/AVPPlay'
+      - name: Package the app for Apple Silicon
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent 'dist/AVP Play.app' 'AVP-Play-Local-Import-Apple-Silicon.zip'
+      - name: Upload precompiled Mac application
+        uses: actions/upload-artifact@v4
+        with:
+          name: AVP-Play-Local-Import-Apple-Silicon
+          path: AVP-Play-Local-Import-Apple-Silicon.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

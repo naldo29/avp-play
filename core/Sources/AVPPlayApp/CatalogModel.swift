@@ -380,7 +380,9 @@ extension AppModel {
         let tool = Probe.metaToolURL
         let id = game.id
         Task.detached {
-            func say(_ text: String) async { await MainActor.run { self.prepareNote[id] = text } }
+            let say: @Sendable (String) async -> Void = { text in
+                await MainActor.run { self.prepareNote[id] = text }
+            }
             var note: String?
             do {
                 let detail = try await client.game(appId: entry.appId)

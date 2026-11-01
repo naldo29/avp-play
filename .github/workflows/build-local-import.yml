@@ -15,10 +15,21 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - name: Select newest available Xcode
+        shell: bash
+        run: |
+          echo "Installed Xcodes:"
+          ls -d /Applications/Xcode*.app || true
+          XC=$(ls -d /Applications/Xcode_26*.app /Applications/Xcode_17*.app 2>/dev/null | tail -1 || true)
+          if [ -n "$XC" ]; then
+            sudo xcode-select --switch "$XC/Contents/Developer"
+          fi
+          xcodebuild -version
+          swift --version
       - name: Verify Swift sources and tests
         run: |
           cd core
-          swift test
+          swift test --jobs 2
       - name: Download official Klepton toolchain package
         env:
           GH_TOKEN: ${{ github.token }}

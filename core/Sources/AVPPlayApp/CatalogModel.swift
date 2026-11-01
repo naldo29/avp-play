@@ -379,7 +379,18 @@ extension AppModel {
         let drafts = draftsDirectory
         let tool = Probe.metaToolURL
         let id = game.id
-        Task.detached {
+        Task.detached { [self, entry, chosen, toolchain, client, paths, drafts, tool, id] in
+            await self.prepareWork(entry: entry, chosen: chosen, toolchain: toolchain,
+                                   client: client, paths: paths, drafts: drafts, tool: tool, id: id)
+        }
+    }
+
+    // Splitting the detached work from prepare(_:) avoids a Swift compiler
+    // closure-lifetime crash in the large captured Task body.
+    nonisolated private func prepareWork(
+        entry: CatalogGame, chosen: CatalogBuild?, toolchain: Toolchain?,
+        client: CatalogClient, paths: Paths, drafts: URL, tool: URL, id: String
+    ) async {
             let say: @Sendable (String) async -> Void = { text in
                 await MainActor.run { self.prepareNote[id] = text }
             }
@@ -434,7 +445,6 @@ extension AppModel {
                 self.prepareNote[id] = final
                 self.refresh()
             }
-        }
     }
 
     private struct Stop: Error { let text: String; init(_ text: String) { self.text = text } }

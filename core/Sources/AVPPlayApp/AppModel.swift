@@ -1263,6 +1263,63 @@ final class AppModel: ObservableObject {
         }
     }
 
+
+    @Published private var importingLocally: Set<String> = []
+
+    /// Import files for the exact game/build currently selected. Install/Update still
+    /// performs all the original account, signing, build, and device checks.
+    func localImportBlocker(for game: Game) -> String? {
+        if let why = storeBlocker { return why }
+        if isBusy(game.id) || steamBusy.contains(game.id) || importingLocally.contains(game.id) {
+            return L("A job for this game is already running.", "Für dieses Spiel läuft schon ein Auftrag.")
+        }
+        guard game.prepared, game.recipe.versionCode > 0,
+              game.recipe.files.contains(where: { $0.role == "apk" }) else {
+            return L("The selected version's file list is not ready.",
+                     "Die Dateiliste der gewählten Fassung ist noch nicht bereit.")
+        }
+        guard !game.recipe.package.isEmpty else {
+            return L("The game's Android package ID is unknown, so identity cannot be checked.",
+                     "Die Android-Paketkennung ist unbekannt und kann nicht geprüft werden.")
+        }
+        return nil
+    }
+
+    func importLocalGame(_ game: Game, from sources: [URL]) {
+        guard !sources.isEmpty, localImportBlocker(for: game) == nil else { return }
+        let store = paths.store
+        let recipe = game.recipe
+        let gameID = game.id
+        importingLocally.insert(gameID)
+        notice = L("Checking local game files …", "Lokale Spieldateien werden geprüft …")
+        Task.detached {
+            let message: String
+            do {
+                let result = try LocalGameImporter(store: store).run(recipe: recipe, sources: sources)
+                var parts = [
+                    L("Imported \(result.imported.count) files for \(recipe.title) \(recipe.versionName). Click Install or Update to finish.",
+                      "\(result.imported.count) Dateien für \(recipe.title) \(recipe.versionName) übernommen. Mit Installieren oder Aktualisieren fortfahren.")
+                ]
+                if !result.missingRequired.isEmpty {
+                    parts.append(L("Missing: \(result.missingRequired.joined(separator: ", ")).",
+                                   "Fehlt: \(result.missingRequired.joined(separator: ", "))."))
+                }
+                if !result.unverifiedCompanions.isEmpty {
+                    parts.append(L("Some additional files have no published checksum, so their exact build cannot be verified.",
+                                   "Einigen Zusatzdateien fehlt eine veröffentlichte Prüfsumme; ihre genaue Fassung ist nicht unabhängig prüfbar."))
+                }
+                message = parts.joined(separator: " ")
+            } catch {
+                message = L("Local import failed: \(error)", "Lokaler Import fehlgeschlagen: \(error)")
+            }
+            await MainActor.run {
+                self.importingLocally.remove(gameID)
+                self.notice = message
+                self.refresh()
+            }
+        }
+    }
+
     // MARK: Toolchain
 
     /// Das Programmpaket bringt eine Toolchain mit. Ist keine installiert oder nur eine ältere, wird die

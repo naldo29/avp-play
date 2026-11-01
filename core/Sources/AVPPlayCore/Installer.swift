@@ -489,12 +489,12 @@ public struct Installer: Sendable {
         // Sobald das APK da ist, steht fest, ob es überhaupt 64-Bit-Code enthält. Wenn nicht, wird nichts weiter
         // geladen – bei République VR wären das 3,4 GB für ein Spiel gewesen, das nie starten kann.
         // Ebenso, ob es eine 2D-App ist (Spotify, WhatsApp): die kann nie laufen.
-        let title = recipe.title, recipe = self.recipe, store = self.store
+        let title = recipe.title, checkedRecipe = self.recipe, checkedStore = self.store
         fetcher.afterFile = { file, url in
             guard file.role == "apk" else { return }
             let found = ApkUnpacker.architectures(of: url)
             if ApkUnpacker.lacksArm64(found) { throw InstallError.wrongArchitecture(title, found.sorted()) }
-            try FlatApp.refuse(apk: url, recipe: recipe, store: store)
+            try FlatApp.refuse(apk: url, recipe: checkedRecipe, store: checkedStore)
         }
         let progress = self.progress
         fetcher.onProgress = { file in progress(InstallProgress(step: .fetch, done: 0, total: 0, file: file)) }

@@ -87,9 +87,9 @@ extension AppModel {
     /// Favoriten. Ein Favorit, den der Katalog gerade nicht geladen hat, steht mit seiner Kennung da.
     func gameListText(now: Date = Date()) -> String {
         let downloaded = allGames.filter { $0.storeBytes > 0 || $0.downloaded }.map(listEntry)
-        let owned = allGames.filter { owned($0) == .yes }.map(listEntry)
+        let ownedEntries = allGames.filter { owned($0) == .yes }.map(listEntry)
         let starred = listEntries(favourites)
-        return GameList.text(downloaded: downloaded, owned: owned, favourites: starred, appVersion: appVersion,
+        return GameList.text(downloaded: downloaded, owned: ownedEntries, favourites: starred, appVersion: appVersion,
                              toolchain: toolchain.map { String($0.version()) } ?? "",
                              made: now.formatted(date: .abbreviated, time: .omitted))
     }
